@@ -196,6 +196,15 @@ function getSections(project){
 function isReferencesSection(sec){
   return sec.key === 'references' || /reference|참고\s*문헌/i.test(sec.label || '');
 }
+// Word 내보내기에서 번호(1., 2., ...)를 붙이지 않는 섹션들 — Abstract,
+// Keywords, Highlights, Graphical Abstract, Declarations, References는
+// 관례상 번호 없는 헤딩으로 쓰인다. Introduction/Experimental/Results/
+// Conclusions 같은 본문 섹션만 번호가 매겨진다.
+function isUnnumberedSection(sec){
+  if(isReferencesSection(sec)) return true;
+  if(['abstract','keywords','graphical_abstract','highlights','declarations'].includes(sec.key)) return true;
+  return /abstract|keyword|highlight|declaration|초록|키워드|하이라이트|선언/i.test(sec.label || '');
+}
 function looksLikeHtml(str){
   return !!str && /<[a-z][\s\S]*>/i.test(str);
 }
@@ -1829,9 +1838,15 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   body += pText(project.title || '제목 없음', { bold:true, size:36, align:'center', after:120 });
   body += buildAuthorBlock(authors);
 
+  let numberedIndex = 0;
   for(let i=0; i<secs.length; i++){
     const s = secs[i];
-    body += pHeading(`${i+1}. ${s.label}`);
+    if(isUnnumberedSection(s)){
+      body += pHeading(s.label);
+    } else {
+      numberedIndex++;
+      body += pHeading(`${numberedIndex}. ${s.label}`);
+    }
     if(isReferencesSection(s)){
       if(references && references.length){
         references.forEach((r,ri) => { body += pText(`[${ri+1}] ${r.text||''}`, { size:20, after:120 }); });
