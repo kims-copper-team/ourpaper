@@ -101,6 +101,9 @@ let state = {
   activeTextareaId:null // 인용/그림 삽입 시 커서를 넣을 대상 textarea id
 };
 
+const LEDGER_KEYS = ['__authors__', '__figures__', '__refs__'];
+function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
+
 /* ============== STORAGE HELPERS ============== */
 async function storageGetWithRetry(key, attempts=4){
   for(let i=0; i<attempts; i++){
@@ -506,25 +509,25 @@ async function retryLoadAuthors(){
 }
 
 function renderWorkspace(project){
+  teardownScrollSpy();
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
   const secs = getSections(project);
-  const progress = computeProgress(project);
   const isCustom = project.journalId === 'custom';
   const figCount = (state.figures || []).length;
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
 
-  const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" onclick="selectAuthors()">
+  const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Author Ledger${state.authorsLoadFailed ? ' ⚠' : (authorCount ? ` (${authorCount})` : '')}</span>
     </button>`;
-  const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" onclick="selectFigures()">
+  const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" data-section-key="__figures__" onclick="selectFigures()">
       <span class="toc-num">▤</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
     </button>`;
-  const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" onclick="selectReferences()">
+  const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Ref Ledger${state.referencesLoadFailed ? ' ⚠' : (refCount ? ` (${refCount})` : '')}</span>
@@ -533,14 +536,12 @@ function renderWorkspace(project){
 
   const tocItems = secs.map((s,i)=>{
     const filled = isSectionFilled(project, s);
-    return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" onclick="selectSection('${s.key}')">
+    return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" data-section-key="${s.key}" onclick="selectSection('${s.key}')">
       <span class="toc-num">${String(i+1).padStart(2,'0')}</span>
       <span class="toc-dot"></span>
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
     </button>`;
   }).join('');
-
-  const currentSec = secs.find(s=>s.key===state.currentSectionKey) || secs[0];
 
   const main = document.getElementById('main-content');
   main.innerHTML = `
@@ -557,16 +558,6 @@ function renderWorkspace(project){
         <button class="btn secondary small" onclick="exportProject('${project.id}')">Word로 내보내기</button>
         <button class="btn danger small" onclick="confirmDeleteProject('${project.id}')">삭제</button>
       </div>
-    </div>
-
-    <div class="spec-sheet">
-      <div class="spec-row"><span>저자</span><span>${authorCount}명 등록됨</span></div>
-      <div class="spec-row"><span>인용 스타일</span><span>${escapeHtml(j.citation)}</span></div>
-      <div class="spec-row"><span>분량 규정</span><span>${escapeHtml(j.pageLimit)}</span></div>
-      <div class="spec-row"><span>진행률</span><span>${progress}% (${secs.filter(s=>isSectionFilled(project,s)).length}/${secs.length} 섹션)</span></div>
-      <div class="spec-row"><span>그림</span><span>${figCount}개 업로드됨</span></div>
-      <div class="spec-row"><span>참고문헌</span><span>${refCount}개 등록됨</span></div>
-      ${j.note ? `<div class="spec-row"><span>참고</span><span>${escapeHtml(j.note)}</span></div>` : ''}
     </div>
 
     <div class="ws-body" style="margin-top:22px;">
@@ -592,106 +583,193 @@ function renderWorkspace(project){
     renderFigureManager(project);
   } else if(state.currentSectionKey === '__refs__'){
     renderRefManager(project);
-  } else if(currentSec && isReferencesSection(currentSec)){
-    renderReferencesSection(project, currentSec);
   } else {
-    renderEditor(project, currentSec, isCustom);
+    renderManuscriptCanvas(project, isCustom);
+    requestAnimationFrame(() => {
+      if(state.currentSectionKey) scrollToSection(state.currentSectionKey, false);
+      setupScrollSpy();
+    });
   }
 }
 
-function renderEditor(project, sec, isCustom){
+function referencesSectionInnerHtml(sec){
+  const refs = state.references || [];
+  const list = refs.length ? refs.map((r,i) => `
+    <p><span class="fig-label" style="margin-right:8px;">[${i+1}]</span>${escapeHtml(r.text || '(내용 없음)')}</p>
+  `).join('') : `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 등록한 참고문헌이 없습니다</div>`;
+  return `
+    <div class="editor-head"><h2>${escapeHtml(sec.label)}</h2></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">이 목록은 Ref Ledger에서 자동으로 생성돼요. 순서를 바꾸거나 항목을 추가·삭제하려면 Ref Ledger로 이동하세요.</div>
+    <button class="btn secondary small" style="margin-bottom:16px;" onclick="selectReferences()">Ref Ledger로 이동</button>
+    <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:15px;line-height:1.85;">${list}</div>
+  `;
+}
+
+// 섹션을 한 번에 하나씩 보여주던 방식 대신, 전체 섹션을 한 캔버스에 이어서
+// 렌더링해 스크롤만으로 원고를 죽 훑어볼 수 있게 한다. 각 섹션은 고유
+// id(sec.key 접미사)를 가진 자기만의 편집 영역·삽입 버튼·단어 수를 유지한다.
+function renderManuscriptCanvas(project, isCustom){
   const pane = document.getElementById('editor-pane');
-  if(!sec){
+  const secs = getSections(project);
+  if(!secs.length){
     pane.innerHTML = `<div style="color:var(--ink-faint);font-size:13.5px;">아직 섹션이 없습니다. 왼쪽에서 섹션을 추가해보세요.</div>`;
     return;
   }
-  const rawContent = project.content[sec.key] || '';
-  const plainText = extractPlainText(rawContent);
-  const wc = wordCount(plainText);
-  const overLimit = sec.limit && wc > sec.limit;
-  const isEmpty = plainText.trim().length === 0;
 
-  let labelField = `<h2>${escapeHtml(sec.label)}</h2>`;
-  if(isCustom){
-    labelField = `<input type="text" id="sec-label-input" value="${escapeHtml(sec.label)}" style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:20px;font-weight:600;border:none;background:transparent;border-bottom:1px dashed var(--line-strong);padding:2px 0;flex:1;" />`;
-  }
+  pane.innerHTML = secs.map(sec => {
+    if(isReferencesSection(sec)){
+      return `<section class="ms-section" id="ms-section-${sec.key}" data-section-key="${sec.key}">${referencesSectionInnerHtml(sec)}</section>`;
+    }
+    const rawContent = project.content[sec.key] || '';
+    const plainText = extractPlainText(rawContent);
+    const wc = wordCount(plainText);
+    const overLimit = sec.limit && wc > sec.limit;
+    const isEmpty = plainText.trim().length === 0;
 
-  pane.innerHTML = `
-    <div class="editor-head">
-      ${labelField}
-      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <button class="btn secondary small" onclick="toggleInsertPicker('figures')">＋ 그림 삽입</button>
-        <button class="btn secondary small" onclick="toggleInsertPicker('refs')">＋ 인용 삽입</button>
-        ${sec.limit ? `<span class="section-limit">권장 ${sec.limit}단어 이내</span>` : ''}
-        ${isCustom ? `<button class="icon-btn" title="섹션 삭제" onclick="removeCustomSection('${sec.key}')">✕</button>` : ''}
+    let labelField = `<h2>${escapeHtml(sec.label)}</h2>`;
+    if(isCustom){
+      labelField = `<input type="text" id="sec-label-input-${sec.key}" value="${escapeHtml(sec.label)}" style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:20px;font-weight:600;border:none;background:transparent;border-bottom:1px dashed var(--line-strong);padding:2px 0;flex:1;" />`;
+    }
+
+    return `<section class="ms-section" id="ms-section-${sec.key}" data-section-key="${sec.key}">
+      <div class="editor-head">
+        ${labelField}
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <button class="btn secondary small" onclick="toggleInsertPicker('figures','${sec.key}')">＋ 그림 삽입</button>
+          <button class="btn secondary small" onclick="toggleInsertPicker('refs','${sec.key}')">＋ 인용 삽입</button>
+          ${sec.limit ? `<span class="section-limit">권장 ${sec.limit}단어 이내</span>` : ''}
+          ${isCustom ? `<button class="icon-btn" title="섹션 삭제" onclick="removeCustomSection('${sec.key}')">✕</button>` : ''}
+        </div>
       </div>
-    </div>
-    ${isCustom ? `<input type="text" id="sec-guidance-input" placeholder="이 섹션에 무엇을 써야 하는지 메모 (선택)" value="${escapeHtml(sec.guidance||'')}" style="width:100%;border:none;background:transparent;font-family:'Times New Roman', '맑은 고딕', serif;font-style:italic;font-size:13px;color:var(--ink-soft);margin:8px 0 16px;padding:0;" />`
-      : (sec.guidance ? `<div class="editor-guidance">${escapeHtml(sec.guidance)}</div>` : '')}
-    <div class="editor-area ${isEmpty ? 'is-empty' : ''}" id="sec-content-input" contenteditable="true" data-placeholder="여기에 ${escapeHtml(sec.label)} 내용을 작성하세요…">${plainTextToEditableHtml(rawContent)}</div>
-    <div class="editor-foot">
-      <span class="word-count ${overLimit?'over':''}" id="wc-display">${wc}단어${sec.limit?(' / '+sec.limit):''}</span>
-      <span class="save-indicator" id="editor-save-indicator"></span>
-    </div>
-  `;
+      ${isCustom ? `<input type="text" id="sec-guidance-input-${sec.key}" placeholder="이 섹션에 무엇을 써야 하는지 메모 (선택)" value="${escapeHtml(sec.guidance||'')}" style="width:100%;border:none;background:transparent;font-family:'Times New Roman', '맑은 고딕', serif;font-style:italic;font-size:13px;color:var(--ink-soft);margin:8px 0 16px;padding:0;" />`
+        : (sec.guidance ? `<div class="editor-guidance">${escapeHtml(sec.guidance)}</div>` : '')}
+      <div class="editor-area ${isEmpty ? 'is-empty' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="여기에 ${escapeHtml(sec.label)} 내용을 작성하세요…">${plainTextToEditableHtml(rawContent)}</div>
+      <div class="editor-foot">
+        <span class="word-count ${overLimit?'over':''}" id="wc-display-${sec.key}">${wc}단어${sec.limit?(' / '+sec.limit):''}</span>
+        <span class="save-indicator" id="editor-save-indicator"></span>
+      </div>
+    </section>`;
+  }).join('');
 
-  state.activeTextareaId = 'sec-content-input';
-
-  const contentInput = document.getElementById('sec-content-input');
-  contentInput.addEventListener('input', ()=>{
-    project.content[sec.key] = contentInput.innerHTML;
-    const plain = contentInput.textContent || '';
-    contentInput.classList.toggle('is-empty', plain.trim().length === 0);
-    const w = wordCount(plain);
-    const wcEl = document.getElementById('wc-display');
-    wcEl.textContent = w + '단어' + (sec.limit ? (' / '+sec.limit) : '');
-    wcEl.classList.toggle('over', sec.limit && w>sec.limit);
-    scheduleSave(project);
-  });
-
-  // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
-  // "선택"해버려 커서가 생기지 않는다. 클릭 위치가 그림의 위쪽 절반이면
-  // 그림 앞, 아래쪽 절반이면 그림 뒤에 있는(없으면 새로 만드는) 빈 줄에
-  // 커서를 놓아 Word처럼 그림 사이 어디를 눌러도 이어서 타이핑할 수 있게
-  // 한다. 브라우저의 네이티브 선택 처리가 이 시점 이후에도 한 번 더
-  // 개입해 커서를 지우므로, 그 처리가 끝난 다음 틱에 다시 적용해야
-  // 유지된다. 또한 커서는 반드시 실제 텍스트 줄(요소와 요소 "사이"가
-  // 아니라) 안에 있어야 타이핑이 씹히지 않는다.
-  contentInput.addEventListener('mousedown', (e) => {
-    const figure = e.target.closest && e.target.closest('.inline-figure');
-    if(!figure || !contentInput.contains(figure)) return;
-    e.preventDefault();
-    const clickY = e.clientY;
-    setTimeout(() => {
-      const rect = figure.getBoundingClientRect();
-      const after = (clickY - rect.top) > rect.height / 2;
-      let target = after ? figure.nextElementSibling : figure.previousElementSibling;
-      if(!target || target.classList.contains('inline-figure')){
-        target = document.createElement('div');
-        target.innerHTML = '<br>';
-        if(after){ figure.after(target); } else { figure.before(target); }
-      }
-      const range = document.createRange();
-      range.selectNodeContents(target);
-      range.collapse(true);
-      contentInput.focus();
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }, 0);
-  });
-
-  if(isCustom){
-    document.getElementById('sec-label-input').addEventListener('input', (e)=>{
-      sec.label = e.target.value;
-      scheduleSave(project);
-      refreshTocOnly(project);
-    });
-    document.getElementById('sec-guidance-input').addEventListener('input', (e)=>{
-      sec.guidance = e.target.value;
-      scheduleSave(project);
-    });
+  if(!state.activeTextareaId || !document.getElementById(state.activeTextareaId)){
+    const firstEditable = secs.find(s => !isReferencesSection(s));
+    if(firstEditable) state.activeTextareaId = 'sec-content-input-' + firstEditable.key;
   }
+
+  secs.forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const contentInput = document.getElementById('sec-content-input-' + sec.key);
+    if(!contentInput) return;
+
+    contentInput.addEventListener('focus', () => {
+      state.activeTextareaId = 'sec-content-input-' + sec.key;
+    });
+
+    contentInput.addEventListener('input', ()=>{
+      project.content[sec.key] = contentInput.innerHTML;
+      const plain = contentInput.textContent || '';
+      contentInput.classList.toggle('is-empty', plain.trim().length === 0);
+      const w = wordCount(plain);
+      const wcEl = document.getElementById('wc-display-' + sec.key);
+      if(wcEl){
+        wcEl.textContent = w + '단어' + (sec.limit ? (' / '+sec.limit) : '');
+        wcEl.classList.toggle('over', sec.limit && w>sec.limit);
+      }
+      scheduleSave(project);
+      refreshTocFilledState(sec.key, plain.trim().length > 0);
+    });
+
+    // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
+    // "선택"해버려 커서가 생기지 않는다. 클릭 위치가 그림의 위쪽 절반이면
+    // 그림 앞, 아래쪽 절반이면 그림 뒤에 있는(없으면 새로 만드는) 빈 줄에
+    // 커서를 놓아 Word처럼 그림 사이 어디를 눌러도 이어서 타이핑할 수 있게
+    // 한다. 브라우저의 네이티브 선택 처리가 이 시점 이후에도 한 번 더
+    // 개입해 커서를 지우므로, 그 처리가 끝난 다음 틱에 다시 적용해야
+    // 유지된다. 또한 커서는 반드시 실제 텍스트 줄(요소와 요소 "사이"가
+    // 아니라) 안에 있어야 타이핑이 씹히지 않는다.
+    contentInput.addEventListener('mousedown', (e) => {
+      const figure = e.target.closest && e.target.closest('.inline-figure');
+      if(!figure || !contentInput.contains(figure)) return;
+      e.preventDefault();
+      const clickY = e.clientY;
+      setTimeout(() => {
+        const rect = figure.getBoundingClientRect();
+        const after = (clickY - rect.top) > rect.height / 2;
+        let target = after ? figure.nextElementSibling : figure.previousElementSibling;
+        if(!target || target.classList.contains('inline-figure')){
+          target = document.createElement('div');
+          target.innerHTML = '<br>';
+          if(after){ figure.after(target); } else { figure.before(target); }
+        }
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(true);
+        contentInput.focus();
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }, 0);
+    });
+
+    if(isCustom){
+      const labelInput = document.getElementById('sec-label-input-' + sec.key);
+      if(labelInput){
+        labelInput.addEventListener('input', (e)=>{
+          sec.label = e.target.value;
+          scheduleSave(project);
+          refreshTocOnly(project);
+        });
+      }
+      const guidanceInput = document.getElementById('sec-guidance-input-' + sec.key);
+      if(guidanceInput){
+        guidanceInput.addEventListener('input', (e)=>{
+          sec.guidance = e.target.value;
+          scheduleSave(project);
+        });
+      }
+    }
+  });
+}
+
+function scrollToSection(key, smooth){
+  const target = document.getElementById('ms-section-' + key);
+  if(!target) return;
+  target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+}
+
+function setActiveTocItem(key){
+  document.querySelectorAll('.toc .toc-item').forEach(btn => btn.classList.remove('active'));
+  const btn = document.querySelector(`.toc .toc-item[data-section-key="${key}"]`);
+  if(btn) btn.classList.add('active');
+}
+
+function refreshTocFilledState(key, filled){
+  const btn = document.querySelector(`.toc .toc-item[data-section-key="${key}"]`);
+  if(btn) btn.classList.toggle('filled', filled);
+}
+
+let scrollSpyObserver = null;
+function teardownScrollSpy(){
+  if(scrollSpyObserver){ scrollSpyObserver.disconnect(); scrollSpyObserver = null; }
+}
+// 스크롤 위치에 따라 사이드바 TOC의 활성 항목을 자동으로 갱신한다
+// (화면 상단 근처 띠에 걸쳐 있는 섹션 중 가장 위에 있는 것을 "현재"로 표시).
+function setupScrollSpy(){
+  teardownScrollSpy();
+  if(typeof IntersectionObserver === 'undefined') return;
+  const sections = document.querySelectorAll('.ms-section[data-section-key]');
+  if(!sections.length) return;
+  scrollSpyObserver = new IntersectionObserver((entries) => {
+    const visible = entries.filter(e => e.isIntersecting);
+    if(!visible.length) return;
+    visible.sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
+    const key = visible[0].target.dataset.sectionKey;
+    if(key && key !== state.currentSectionKey){
+      state.currentSectionKey = key;
+      setActiveTocItem(key);
+    }
+  }, { root:null, rootMargin:'-15% 0px -70% 0px', threshold:0 });
+  sections.forEach(sec => scrollSpyObserver.observe(sec));
 }
 
 /* ============== 삽입 패널 (그림/인용 삽입) — 편집 영역 흐름 안에 직접 삽입/제거 ============== */
@@ -747,19 +825,23 @@ function buildRefInsertItemsHtml(){
   `).join('');
 }
 
-function toggleInsertPicker(kind){
+function toggleInsertPicker(kind, sectionKey){
   const existing = document.getElementById('inline-insert-picker');
   if(existing){
     const wasKind = existing.dataset.kind;
+    const wasSection = existing.dataset.sectionKey || '';
     existing.remove();
-    if(wasKind === kind) return; // 같은 버튼을 다시 누르면 닫기만 함
+    if(wasKind === kind && wasSection === (sectionKey || '')) return; // 같은 버튼을 다시 누르면 닫기만 함
   }
-  const head = document.querySelector('.editor-head');
+  if(sectionKey) state.activeTextareaId = 'sec-content-input-' + sectionKey;
+  const container = sectionKey ? document.getElementById('ms-section-' + sectionKey) : document.querySelector('.editor-pane');
+  const head = container ? container.querySelector('.editor-head') : document.querySelector('.editor-head');
   if(!head){ showToast('삽입 패널을 열 위치를 찾지 못했어요'); return; }
   const panel = document.createElement('div');
   panel.id = 'inline-insert-picker';
   panel.className = 'inline-insert-picker';
   panel.dataset.kind = kind;
+  if(sectionKey) panel.dataset.sectionKey = sectionKey;
   panel.innerHTML = kind === 'figures' ? buildFigureInsertPanel() : buildRefInsertItemsHtml();
   head.insertAdjacentElement('afterend', panel);
 }
@@ -1259,22 +1341,6 @@ function scheduleRefSave(){
 }
 
 /* ============== References 섹션 (Ref Ledger 기반 자동 생성) ============== */
-function renderReferencesSection(project, sec){
-  const pane = document.getElementById('editor-pane');
-  const refs = state.references || [];
-
-  const list = refs.length ? refs.map((r,i) => `
-    <p><span class="fig-label" style="margin-right:8px;">[${i+1}]</span>${escapeHtml(r.text || '(내용 없음)')}</p>
-  `).join('') : `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 등록한 참고문헌이 없습니다</div>`;
-
-  pane.innerHTML = `
-    <div class="editor-head"><h2>${escapeHtml(sec.label)}</h2></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">이 목록은 Ref Ledger에서 자동으로 생성돼요. 순서를 바꾸거나 항목을 추가·삭제하려면 Ref Ledger로 이동하세요.</div>
-    <button class="btn secondary small" style="margin-bottom:16px;" onclick="selectReferences()">Ref Ledger로 이동</button>
-    <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:15px;line-height:1.85;">${list}</div>
-  `;
-}
-
 /* ============== AUTHOR LEDGER (저자 관리) ============== */
 let authorFormOpen = false;
 
@@ -1533,17 +1599,17 @@ function refreshTocOnly(project){
   const figCount = (state.figures || []).length;
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
-  const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" onclick="selectAuthors()">
+  const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Author Ledger${state.authorsLoadFailed ? ' ⚠' : (authorCount ? ` (${authorCount})` : '')}</span>
     </button>`;
-  const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" onclick="selectFigures()">
+  const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" data-section-key="__figures__" onclick="selectFigures()">
       <span class="toc-num">▤</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
     </button>`;
-  const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" onclick="selectReferences()">
+  const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Ref Ledger${state.referencesLoadFailed ? ' ⚠' : (refCount ? ` (${refCount})` : '')}</span>
@@ -1551,7 +1617,7 @@ function refreshTocOnly(project){
     <div class="toc-divider"></div>`;
   const tocItems = secs.map((s,i)=>{
     const filled = isSectionFilled(project, s);
-    return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" onclick="selectSection('${s.key}')">
+    return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" data-section-key="${s.key}" onclick="selectSection('${s.key}')">
       <span class="toc-num">${String(i+1).padStart(2,'0')}</span>
       <span class="toc-dot"></span>
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
@@ -1561,7 +1627,16 @@ function refreshTocOnly(project){
 }
 
 async function selectSection(key){
+  // 이미 원고 캔버스가 떠 있으면(이전 화면이 Ledger가 아니었으면) 다시
+  // 그리지 않고 그냥 그 섹션으로 스크롤만 한다 — 다른 섹션에서 입력 중이던
+  // 포커스/상태를 건드리지 않기 위함.
+  const canvasAlreadyRendered = !isLedgerKey(state.currentSectionKey) && !!document.querySelector('.ms-section');
   state.currentSectionKey = key;
+  if(canvasAlreadyRendered){
+    scrollToSection(key, true);
+    setActiveTocItem(key);
+    return;
+  }
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -1824,7 +1899,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         if(img && img.src){
           const { rId, size, num } = await registerImage(img.src);
           out += pImage(rId, size, num);
-          out += pText(captionEl ? captionEl.textContent : '', { italic:true, size:18, align:'center', after:280 });
+          out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
         }
       } else {
         const text = node.textContent || '';
@@ -1865,7 +1940,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     for(const f of appendixFigures){
       const { rId, size, num } = await registerImage(f.dataUrl);
       body += pImage(rId, size, num);
-      body += pText(`Fig. ${f.num}. ${f.caption || '(캡션 미작성)'}`, { italic:true, size:18, align:'center', after:280 });
+      body += pText(`Fig. ${f.num}. ${f.caption || '(캡션 미작성)'}`, { size:18, align:'center', after:280 });
     }
   }
 
