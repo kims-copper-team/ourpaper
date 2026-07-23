@@ -93,103 +93,182 @@ const JOURNALS = {
 
 /* ============== STATE ============== */
 let state = {
+  currentUser:null, authMode:'signin',
   tab:'dashboard', currentProjectId:null, currentSectionKey:null, saveTimer:null,
   figures:[], figureSaveTimer:null, figuresLoadFailed:false,
   references:[], refSaveTimer:null, referencesLoadFailed:false,
   authors:[], authorSaveTimer:null, authorsLoadFailed:false,
   authorDirectory:[], authorDirectoryLoaded:false,
   tables:[], tableSaveTimer:null, tablesLoadFailed:false,
+  members:[], membersLoadFailed:false,
   activeTextareaId:null // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
 };
 
-const LEDGER_KEYS = ['__authors__', '__figures__', '__refs__', '__tables__'];
+const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__'];
 function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
 
-/* ============== STORAGE HELPERS ============== */
-async function storageGetWithRetry(key, attempts=4){
+/* ============== STORAGE HELPERS (Supabase, 관계형) ==============
+ * 예전에는 project/figures/refs/authors/tables가 각자 독립된 key-value
+ * 레코드였다. 지금은 전부 projects 테이블 한 행(row)의 컬럼이고, RLS가
+ * 프로젝트 멤버십으로 접근을 막아준다. 다만 이 파일의 나머지 코드는
+ * 여전히 각각을 독립적으로 get/set하는 함수 이름과 반환 모양을 기대하므로,
+ * 그 인터페이스는 그대로 유지한 채 내부 구현만 관계형 쿼리로 바꾼다.
+ */
+async function sbSelectWithRetry(table, columns, id, attempts=3){
   for(let i=0; i<attempts; i++){
-    try{
-      const r = await window.storage.get(key, false);
-      return { value: r ? JSON.parse(r.value) : null, failed:false };
-    }catch(e){
-      const msg = (e && e.message) || '';
-      console.error(`storage get 실패 (${key}, 시도 ${i+1}/${attempts}):`, e);
-      if(/internal server error/i.test(msg) && i < attempts-1){
-        await new Promise(res => setTimeout(res, 400*(i+1)));
-        continue;
-      }
-      if(/internal server error/i.test(msg)) return { value:null, failed:true };
-      return { value:null, failed:false }; // 서버 오류가 아니면 키가 아직 없는 것으로 간주
-    }
+    const { data, error } = await window.sb.from(table).select(columns).eq('id', id).maybeSingle();
+    if(!error) return { data, failed:false };
+    console.error(`${table} 조회 실패 (시도 ${i+1}/${attempts}):`, error);
+    if(i < attempts-1) await new Promise(res => setTimeout(res, 400*(i+1)));
   }
-  return { value:null, failed:true };
+  return { data:null, failed:true };
 }
-async function storageSet(key, value){
-  try{
-    const r = await window.storage.set(key, JSON.stringify(value), false);
-    return !!r;
-  }catch(e){ console.error(`storage set 실패 (${key}):`, e); return false; }
+async function getProjectColumn(projectId, column, attempts=3){
+  const { data, failed } = await sbSelectWithRetry('projects', column, projectId, attempts);
+  if(failed) return { value:null, failed:true };
+  return { value: data ? data[column] : null, failed:false };
 }
-async function storageDelete(key){
-  try{ await window.storage.delete(key, false); return true; }
-  catch(e){ console.error(`storage delete 실패 (${key}):`, e); return false; }
+async function setProjectColumn(projectId, column, value){
+  const patch = { updated_at: new Date().toISOString() };
+  patch[column] = value;
+  const { error } = await window.sb.from('projects').update(patch).eq('id', projectId);
+  if(error){ console.error(`projects.${column} 저장 실패:`, error); return false; }
+  return true;
+}
+
+function computeProgressForRow(row){
+  const project = { journalId: row.journal_id, customSections: row.custom_sections, content: row.content || {} };
+  const secs = getSections(project);
+  if(!secs.length) return 0;
+  const filled = secs.filter(s => {
+    if(isReferencesSection(s)) return (row.references_list || []).length > 0;
+    return extractPlainText(project.content[s.key]).trim().length > 0;
+  }).length;
+  return Math.round((filled/secs.length)*100);
 }
 
 async function getIndex(){
-  const { value, failed } = await storageGetWithRetry('projects-index', 3);
-  return { list: value || [], failed };
+  for(let i=0; i<3; i++){
+    const { data, error } = await window.sb.from('projects')
+      .select('id,title,journal_id,custom_sections,content,references_list,updated_at')
+      .order('updated_at', { ascending:false });
+    if(!error){
+      const list = (data||[]).map(row => ({
+        id: row.id, title: row.title, journalId: row.journal_id,
+        updatedAt: new Date(row.updated_at).getTime(),
+        progress: computeProgressForRow(row)
+      }));
+      return { list, failed:false };
+    }
+    console.error(`프로젝트 목록 조회 실패 (시도 ${i+1}/3):`, error);
+    await new Promise(res => setTimeout(res, 400*(i+1)));
+  }
+  return { list:[], failed:true };
 }
-async function setIndex(list){ return storageSet('projects-index', list); }
+
+async function insertProject(p){
+  const session = await getSession();
+  if(!session) return { project:null, error:new Error('로그인이 필요합니다') };
+  const row = {
+    title: p.title, journal_id: p.journalId,
+    custom_sections: p.journalId === 'custom' ? (p.customSections || []) : [],
+    owner_id: session.user.id
+  };
+  const { data, error } = await window.sb.from('projects').insert(row).select().single();
+  if(error){ console.error('프로젝트 생성 실패:', error); return { project:null, error }; }
+  return { project: mapProjectRow(data), error:null };
+}
+
+function mapProjectRow(data){
+  return {
+    id: data.id, title: data.title, journalId: data.journal_id,
+    customSections: data.journal_id === 'custom' ? (data.custom_sections || []) : undefined,
+    content: data.content || {}, editorFontSize: data.editor_font_size || undefined,
+    ownerId: data.owner_id,
+    createdAt: new Date(data.created_at).getTime(), updatedAt: new Date(data.updated_at).getTime()
+  };
+}
 
 async function getProjectWithRetry(id, attempts=4){
-  const { value, failed } = await storageGetWithRetry('project:'+id, attempts);
-  return { project: value, failed };
+  const { data, failed } = await sbSelectWithRetry(
+    'projects', 'id,title,journal_id,custom_sections,content,editor_font_size,owner_id,created_at,updated_at', id, attempts
+  );
+  if(failed) return { project:null, failed:true };
+  if(!data) return { project:null, failed:false };
+  return { project: mapProjectRow(data), failed:false };
 }
 async function getProject(id){
   const { project } = await getProjectWithRetry(id, 3);
   return project;
 }
-async function setProject(p){ return storageSet('project:'+p.id, p); }
-async function deleteProjectStorage(id){ return storageDelete('project:'+id); }
+async function setProject(p){
+  const patch = {
+    title: p.title, journal_id: p.journalId,
+    custom_sections: p.journalId === 'custom' ? (p.customSections || []) : [],
+    content: p.content || {},
+    editor_font_size: p.editorFontSize || null,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await window.sb.from('projects').update(patch).eq('id', p.id);
+  if(error){ console.error('프로젝트 저장 실패:', error); return false; }
+  return true;
+}
+async function deleteProjectStorage(id){
+  const { error } = await window.sb.from('projects').delete().eq('id', id);
+  if(error){ console.error('프로젝트 삭제 실패:', error); return false; }
+  return true;
+}
 
 async function getFigures(projectId){
-  const { value, failed } = await storageGetWithRetry('figures:'+projectId, 3);
+  const { value, failed } = await getProjectColumn(projectId, 'figures');
   if(failed) return { figures:null, failed:true };
   return { figures: value || [], failed:false };
 }
-async function setFigures(projectId, figures){ return storageSet('figures:'+projectId, figures); }
-async function deleteFiguresStorage(projectId){ return storageDelete('figures:'+projectId); }
+async function setFigures(projectId, figures){ return setProjectColumn(projectId, 'figures', figures); }
+// figures는 이제 projects 행의 컬럼이라, 프로젝트 삭제(cascade) 시 함께 사라진다.
+async function deleteFiguresStorage(){ return true; }
 
 async function getTables(projectId){
-  const { value, failed } = await storageGetWithRetry('tables:'+projectId, 3);
+  const { value, failed } = await getProjectColumn(projectId, 'tables');
   if(failed) return { tables:null, failed:true };
   return { tables: value || [], failed:false };
 }
-async function setTables(projectId, tables){ return storageSet('tables:'+projectId, tables); }
-async function deleteTablesStorage(projectId){ return storageDelete('tables:'+projectId); }
+async function setTables(projectId, tables){ return setProjectColumn(projectId, 'tables', tables); }
+async function deleteTablesStorage(){ return true; }
 
 async function getReferences(projectId){
-  const { value, failed } = await storageGetWithRetry('refs:'+projectId, 3);
+  const { value, failed } = await getProjectColumn(projectId, 'references_list');
   if(failed) return { references:null, failed:true };
   return { references: value || [], failed:false };
 }
-async function setReferences(projectId, refs){ return storageSet('refs:'+projectId, refs); }
-async function deleteReferencesStorage(projectId){ return storageDelete('refs:'+projectId); }
-
-async function getAuthorDirectory(){
-  const { value, failed } = await storageGetWithRetry('author-directory', 3);
-  if(failed) return { directory:null, failed:true };
-  return { directory: value || [], failed:false };
-}
-async function setAuthorDirectory(list){ return storageSet('author-directory', list); }
+async function setReferences(projectId, refs){ return setProjectColumn(projectId, 'references_list', refs); }
+async function deleteReferencesStorage(){ return true; }
 
 async function getProjectAuthors(projectId){
-  const { value, failed } = await storageGetWithRetry('authors:'+projectId, 3);
+  const { value, failed } = await getProjectColumn(projectId, 'authors');
   if(failed) return { authors:null, failed:true };
   return { authors: value || [], failed:false };
 }
-async function setProjectAuthors(projectId, authors){ return storageSet('authors:'+projectId, authors); }
-async function deleteProjectAuthorsStorage(projectId){ return storageDelete('authors:'+projectId); }
+async function setProjectAuthors(projectId, authors){ return setProjectColumn(projectId, 'authors', authors); }
+async function deleteProjectAuthorsStorage(){ return true; }
+
+// 저자 주소록은 이제 로그인한 사용자 개인 소유(profiles.author_directory).
+async function getAuthorDirectory(){
+  const session = await getSession();
+  if(!session) return { directory:[], failed:false };
+  for(let i=0; i<3; i++){
+    const { data, error } = await window.sb.from('profiles').select('author_directory').eq('id', session.user.id).maybeSingle();
+    if(!error) return { directory: (data && data.author_directory) || [], failed:false };
+    console.error(`author_directory 조회 실패 (시도 ${i+1}/3):`, error);
+    await new Promise(res => setTimeout(res, 400*(i+1)));
+  }
+  return { directory:null, failed:true };
+}
+async function setAuthorDirectory(list){
+  const { error } = await window.sb.rpc('update_my_author_directory', { new_list: list });
+  if(error){ console.error('author_directory 저장 실패:', error); return false; }
+  return true;
+}
 
 
 /* ============== UTIL ============== */
@@ -236,12 +315,6 @@ function isSectionFilled(project, sec){
   if(isReferencesSection(sec)) return (state.references || []).length > 0;
   return extractPlainText(project.content[sec.key]).trim().length > 0;
 }
-function computeProgress(project){
-  const secs = getSections(project);
-  if(secs.length===0) return 0;
-  const filled = secs.filter(s => isSectionFilled(project, s)).length;
-  return Math.round((filled/secs.length)*100);
-}
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -258,8 +331,10 @@ function goTab(tab){
   state.tab = tab;
   document.getElementById('tab-dashboard').classList.toggle('active', tab==='dashboard');
   document.getElementById('tab-guide').classList.toggle('active', tab==='guide');
+  document.getElementById('tab-admin').classList.toggle('active', tab==='admin');
   if(tab==='dashboard') renderDashboard();
   if(tab==='guide') renderGuide();
+  if(tab==='admin') renderAdminPanel();
 }
 
 /* ============== DASHBOARD ============== */
@@ -363,33 +438,27 @@ function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
 async function submitNewProject(){
   const title = document.getElementById('new-title').value.trim();
   if(!title || !newProjectSelectedJournal) return;
-  const id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
-  const now = Date.now();
-  const project = {
-    id, title, journalId:newProjectSelectedJournal,
+  const draft = {
+    title, journalId:newProjectSelectedJournal,
     customSections: newProjectSelectedJournal==='custom'
       ? [{key:'sec_'+Date.now()+'_'+Math.random().toString(36).slice(2,5), label:'초록', guidance:'', limit:null}]
-      : undefined,
-    content:{}, createdAt:now, updatedAt:now
+      : undefined
   };
 
   const createBtn = document.getElementById('create-btn');
   if(createBtn){ createBtn.disabled = true; createBtn.textContent = '만드는 중…'; }
 
-  let saved = await setProject(project);
-  if(!saved) saved = await setProject(project); // 1회 재시도
+  // insert는 update와 달리 재시도하면 중복 생성될 위험이 있어 한 번만 시도한다.
+  const { project } = await insertProject(draft);
 
-  if(!saved){
+  if(!project){
     showToast('프로젝트 저장에 실패했어요. 다시 시도해주세요');
     if(createBtn){ createBtn.disabled = false; createBtn.textContent = '프로젝트 만들기'; }
     return;
   }
 
-  const { list: idx } = await getIndex();
-  idx.push({ id, title, journalId:newProjectSelectedJournal, progress:0, updatedAt:now });
-  await setIndex(idx);
   closeModal();
-  openWorkspace(id);
+  openWorkspace(project.id);
 }
 
 /* ============== GUIDE PAGE ============== */
@@ -493,6 +562,10 @@ async function openWorkspace(id){
   } else {
     state.tables = tables;
   }
+  const { owner, members, failed: membersFailed } = await listProjectMembers(id, project.ownerId);
+  state.membersLoadFailed = membersFailed;
+  state.owner = membersFailed ? null : owner;
+  state.members = membersFailed ? [] : members;
   const secs = getSections(project);
   state.currentSectionKey = secs.length ? secs[0].key : null;
   renderWorkspace(project);
@@ -534,6 +607,16 @@ async function retryLoadTables(){
   if(project) renderWorkspace(project);
 }
 
+async function retryLoadMembers(){
+  const project = await getProject(state.currentProjectId);
+  if(!project){ showToast('아직도 불러오지 못했어요. 잠시 후 다시 시도해주세요'); return; }
+  const { owner, members, failed } = await listProjectMembers(state.currentProjectId, project.ownerId);
+  state.membersLoadFailed = failed;
+  if(failed){ showToast('아직도 불러오지 못했어요. 잠시 후 다시 시도해주세요'); }
+  else { state.owner = owner; state.members = members; showToast('팀원 목록을 다시 불러왔어요'); }
+  renderWorkspace(project);
+}
+
 function renderWorkspace(project){
   teardownScrollSpy();
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
@@ -543,7 +626,13 @@ function renderWorkspace(project){
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
+  const memberCount = 1 + (state.members || []).length; // owner + invited participants
 
+  const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
+      <span class="toc-num">☺</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+    </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
@@ -594,12 +683,13 @@ function renderWorkspace(project){
           <option value="19">가 아주 크게</option>
         </select>
         <button class="btn secondary small" onclick="exportProject('${project.id}')">Word로 내보내기</button>
-        <button class="btn danger small" onclick="confirmDeleteProject('${project.id}')">삭제</button>
+        ${project.ownerId === state.currentUser.id ? `<button class="btn danger small" onclick="confirmDeleteProject('${project.id}')">삭제</button>` : ''}
       </div>
     </div>
 
     <div class="ws-body" style="margin-top:22px;">
       <div class="toc">
+        ${membersBtn}
         ${authorsBtn}
         ${figuresBtn}
         ${tablesBtn}
@@ -627,7 +717,9 @@ function renderWorkspace(project){
     scheduleSave(project);
   });
 
-  if(state.currentSectionKey === '__authors__'){
+  if(state.currentSectionKey === '__members__'){
+    renderMembersManager(project);
+  } else if(state.currentSectionKey === '__authors__'){
     renderAuthorManager(project);
   } else if(state.currentSectionKey === '__figures__'){
     renderFigureManager(project);
@@ -1542,6 +1634,147 @@ function syncEmbeddedTableCaption(project, tableId, tableNum, newCaption){
   return changed;
 }
 
+/* ============== 팀원(멤버십) 관리 ============== */
+async function listProjectMembers(projectId, ownerId){
+  for(let i=0; i<3; i++){
+    const [membersRes, ownerRes] = await Promise.all([
+      window.sb.from('project_members')
+        .select('user_id, invited_at, profiles(email, display_name)')
+        .eq('project_id', projectId)
+        .order('invited_at', { ascending:true }),
+      ownerId
+        ? window.sb.from('profiles').select('id,email,display_name').eq('id', ownerId).maybeSingle()
+        : Promise.resolve({ data:null, error:null })
+    ]);
+    if(!membersRes.error && !ownerRes.error){
+      const members = (membersRes.data||[]).map(row => ({
+        userId: row.user_id, invitedAt: new Date(row.invited_at).getTime(),
+        email: row.profiles ? row.profiles.email : '', displayName: row.profiles ? row.profiles.display_name : ''
+      }));
+      return { owner: ownerRes.data, members, failed:false };
+    }
+    console.error(`팀원 목록 조회 실패 (시도 ${i+1}/3):`, membersRes.error || ownerRes.error);
+    await new Promise(res => setTimeout(res, 400*(i+1)));
+  }
+  return { owner:null, members:null, failed:true };
+}
+
+async function inviteMemberByEmail(projectId, email){
+  const { data: profile, error: lookupError } = await window.sb.from('profiles').select('id,email').eq('email', email).maybeSingle();
+  if(lookupError) return { error: lookupError };
+  if(!profile) return { error: new Error('해당 이메일로 가입된 계정을 찾을 수 없어요') };
+  const { error } = await window.sb.from('project_members').insert({ project_id: projectId, user_id: profile.id });
+  if(error){
+    if(error.code === '23505') return { error: new Error('이미 초대된 사용자예요') };
+    return { error };
+  }
+  return { error:null };
+}
+
+async function removeMember(projectId, userId){
+  const { error } = await window.sb.from('project_members').delete().eq('project_id', projectId).eq('user_id', userId);
+  if(error){ showToast('제거에 실패했어요: ' + error.message); return false; }
+  return true;
+}
+
+let inviteFormOpen = false;
+
+function renderMembersManager(project){
+  const pane = document.getElementById('editor-pane');
+  const isOwner = project.ownerId === state.currentUser.id;
+
+  if(state.membersLoadFailed){
+    pane.innerHTML = `
+      <div class="editor-head"><h2>팀원</h2></div>
+      <div style="text-align:center;padding:56px 20px;">
+        <div style="font-family:'Times New Roman','맑은 고딕',serif;font-size:17px;font-weight:600;margin-bottom:6px;">팀원 목록을 불러오지 못했어요</div>
+        <div style="color:var(--ink-soft);font-size:13px;line-height:1.7;max-width:360px;margin:0 auto 18px;">일시적인 저장소 서버 오류예요. 잠시 후 다시 시도해주세요.</div>
+        <button class="btn small" onclick="retryLoadMembers()">다시 시도</button>
+      </div>
+    `;
+    return;
+  }
+
+  const owner = state.owner;
+  const members = state.members || [];
+
+  const inviteForm = isOwner ? (inviteFormOpen ? `
+    <div class="ref-add-form" id="invite-add-form">
+      <input type="text" id="invite-email-input" placeholder="초대할 사람의 가입 이메일" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn secondary small" onclick="cancelInviteMember()">취소</button>
+        <button class="btn small" onclick="submitInviteMember()">초대</button>
+      </div>
+    </div>
+  ` : `<button class="btn secondary small" style="margin-bottom:16px;" onclick="showInviteMemberForm()">＋ 팀원 초대</button>`) : '';
+
+  const ownerCard = `
+    <div class="ref-card">
+      <div class="ref-num-badge">👑</div>
+      <div class="ref-body">
+        <div style="font-weight:600;font-size:13.5px;color:var(--ink);">${escapeHtml((owner && (owner.display_name || owner.email)) || '(알 수 없음)')}</div>
+        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New','맑은 고딕',monospace;">${escapeHtml((owner && owner.email) || '')} · 프로젝트 관리자(소유자)</div>
+      </div>
+    </div>`;
+
+  const memberCards = members.map(m => `
+    <div class="ref-card">
+      <div class="ref-num-badge">✓</div>
+      <div class="ref-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div style="font-weight:600;font-size:13.5px;color:var(--ink);">${escapeHtml(m.displayName || m.email)}</div>
+          ${isOwner ? `<button class="icon-btn" title="제거" onclick="submitRemoveMember('${m.userId}')">✕</button>` : ''}
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New','맑은 고딕',monospace;">${escapeHtml(m.email)} · 참여자</div>
+      </div>
+    </div>`).join('');
+
+  pane.innerHTML = `
+    <div class="editor-head"><h2>팀원</h2><span class="section-limit">${1 + members.length}명</span></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">${isOwner ? '이메일로 참여자를 초대하세요. 초대받은 사람은 가입만 되어 있으면 바로 이 프로젝트를 함께 편집할 수 있어요.' : '이 프로젝트의 소유자와 참여자 목록이에요. 초대·제거는 소유자만 할 수 있어요.'}</div>
+    ${inviteForm}
+    <div class="fig-list" id="member-list">${ownerCard}${memberCards}</div>
+  `;
+
+  if(inviteFormOpen){
+    const input = document.getElementById('invite-email-input');
+    if(input) input.focus();
+  }
+}
+
+function showInviteMemberForm(){
+  inviteFormOpen = true;
+  getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+function cancelInviteMember(){
+  inviteFormOpen = false;
+  getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+
+async function submitInviteMember(){
+  const email = document.getElementById('invite-email-input').value.trim();
+  if(!email){ showToast('이메일을 입력해주세요'); return; }
+  const { error } = await inviteMemberByEmail(state.currentProjectId, email);
+  if(error){ showToast(error.message); return; }
+  inviteFormOpen = false;
+  showToast('초대했어요');
+  const project = await getProject(state.currentProjectId);
+  if(!project) return;
+  const { owner, members, failed } = await listProjectMembers(state.currentProjectId, project.ownerId);
+  if(!failed){ state.owner = owner; state.members = members; state.membersLoadFailed = false; }
+  renderWorkspace(project);
+}
+
+async function submitRemoveMember(userId){
+  const ok = await removeMember(state.currentProjectId, userId);
+  if(!ok) return;
+  const project = await getProject(state.currentProjectId);
+  if(!project) return;
+  const { owner, members, failed } = await listProjectMembers(state.currentProjectId, project.ownerId);
+  if(!failed){ state.owner = owner; state.members = members; state.membersLoadFailed = false; }
+  renderWorkspace(project);
+}
+
 /* ============== REF LEDGER (참고문헌 관리) ============== */
 let refFormOpen = false;
 
@@ -1981,6 +2214,12 @@ function refreshTocOnly(project){
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
+  const memberCount = 1 + (state.members || []).length;
+  const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
+      <span class="toc-num">☺</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+    </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
@@ -2010,7 +2249,7 @@ function refreshTocOnly(project){
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
     </button>`;
   }).join('');
-  toc.innerHTML = authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
+  toc.innerHTML = membersBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
 }
 
 async function selectSection(key){
@@ -2038,6 +2277,13 @@ async function selectFigures(){
 
 async function selectTables(){
   state.currentSectionKey = '__tables__';
+  const project = await getProject(state.currentProjectId);
+  if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  renderWorkspace(project);
+}
+
+async function selectMembers(){
+  state.currentSectionKey = '__members__';
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -2088,21 +2334,9 @@ function scheduleSave(project){
   if(ind) ind.textContent = '저장 중…';
   clearTimeout(state.saveTimer);
   state.saveTimer = setTimeout(async ()=>{
-    await setProject(project);
-    const { list: idx, failed } = await getIndex();
-    if(failed){
-      const ind2 = document.getElementById('save-indicator');
-      if(ind2) ind2.textContent = '원고는 저장됨 · 목록 정보 동기화 대기중';
-      return; // 인덱스를 잘못된 빈 값으로 덮어쓰지 않도록 여기서 중단
-    }
-    const entry = idx.find(p=>p.id===project.id);
-    const progress = computeProgress(project);
-    if(entry){
-      entry.title = project.title; entry.updatedAt = project.updatedAt; entry.progress = progress;
-    }
-    await setIndex(idx);
+    const ok = await setProject(project);
     const ind2 = document.getElementById('save-indicator');
-    if(ind2) ind2.textContent = '저장됨 · ' + fmtDate(project.updatedAt);
+    if(ind2) ind2.textContent = ok ? ('저장됨 · ' + fmtDate(project.updatedAt)) : '저장 실패 · 다시 시도 중…';
   }, 500);
 }
 
@@ -2122,18 +2356,12 @@ function confirmDeleteProject(id){
   </div>`;
 }
 async function doDeleteProject(id){
-  const { list: idx, failed } = await getIndex();
-  if(failed){
+  const ok = await deleteProjectStorage(id);
+  if(!ok){
     closeModal();
     showToast('일시적인 서버 오류로 삭제하지 못했어요. 다시 시도해주세요');
     return;
   }
-  await deleteProjectStorage(id);
-  await deleteFiguresStorage(id);
-  await deleteReferencesStorage(id);
-  await deleteProjectAuthorsStorage(id);
-  await deleteTablesStorage(id);
-  await setIndex(idx.filter(p=>p.id!==id));
   closeModal();
   showToast('프로젝트를 삭제했습니다');
   goTab('dashboard');
@@ -2484,5 +2712,191 @@ async function exportProject(id){
   }
 }
 
+/* ============== AUTH SCREEN ============== */
+function renderAuthScreen(mode){
+  state.authMode = mode || state.authMode || 'signin';
+  const isSignup = state.authMode === 'signup';
+  const root = document.getElementById('auth-screen');
+  root.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div class="brand">
+          <div class="brand-mark">P</div>
+          <div><div class="brand-name">논문 투고 워크스페이스</div></div>
+        </div>
+        <h1>${isSignup ? '계정 만들기' : '로그인'}</h1>
+        <div id="auth-message"></div>
+        <div class="field">
+          <label>이메일</label>
+          <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>비밀번호</label>
+          <input type="password" id="auth-password" placeholder="6자 이상" autocomplete="${isSignup?'new-password':'current-password'}" />
+        </div>
+        <button class="btn" id="auth-submit-btn" onclick="${isSignup?'handleSignUp()':'handleSignIn()'}">${isSignup ? '가입하기' : '로그인'}</button>
+        <div class="auth-switch">
+          ${isSignup
+            ? `이미 계정이 있으신가요? <a onclick="renderAuthScreen('signin')">로그인</a>`
+            : `계정이 없으신가요? <a onclick="renderAuthScreen('signup')">가입하기</a>`}
+        </div>
+      </div>
+    </div>
+  `;
+  const emailInput = document.getElementById('auth-email');
+  const pwInput = document.getElementById('auth-password');
+  emailInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') pwInput.focus(); });
+  pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('auth-submit-btn').click(); });
+  emailInput.focus();
+}
+
+function setAuthMessage(text, kind){
+  const el = document.getElementById('auth-message');
+  if(!el) return;
+  el.innerHTML = text ? `<div class="${kind==='error'?'auth-error':'auth-notice'}">${escapeHtml(text)}</div>` : '';
+}
+
+function showAuthScreen(mode){
+  const app = document.getElementById('app');
+  const auth = document.getElementById('auth-screen');
+  if(app) app.style.display = 'none';
+  if(auth) auth.style.display = 'block';
+  renderAuthScreen(mode);
+}
+function showApp(){
+  const app = document.getElementById('app');
+  const auth = document.getElementById('auth-screen');
+  if(auth) auth.style.display = 'none';
+  if(app) app.style.display = 'flex';
+}
+
+async function handleSignIn(){
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if(!email || !password){ setAuthMessage('이메일과 비밀번호를 입력해주세요', 'error'); return; }
+  const btn = document.getElementById('auth-submit-btn');
+  btn.disabled = true; btn.textContent = '로그인 중…';
+  const { error } = await authSignIn(email, password);
+  if(error){
+    setAuthMessage(error.message === 'Invalid login credentials' ? '이메일 또는 비밀번호가 올바르지 않아요' : error.message, 'error');
+    btn.disabled = false; btn.textContent = '로그인';
+    return;
+  }
+  await bootAfterAuth();
+}
+
+async function handleSignUp(){
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if(!email || !password){ setAuthMessage('이메일과 비밀번호를 입력해주세요', 'error'); return; }
+  if(password.length < 6){ setAuthMessage('비밀번호는 6자 이상이어야 해요', 'error'); return; }
+  const btn = document.getElementById('auth-submit-btn');
+  btn.disabled = true; btn.textContent = '가입 처리 중…';
+  const { error, session } = await authSignUp(email, password);
+  if(error){
+    setAuthMessage(error.message, 'error');
+    btn.disabled = false; btn.textContent = '가입하기';
+    return;
+  }
+  if(!session){
+    // 이메일 확인이 켜져 있는 프로젝트는 가입 직후 세션이 바로 생기지 않는다.
+    renderAuthScreen('signin');
+    setAuthMessage('가입 확인 이메일을 보냈어요. 메일함을 확인한 뒤 로그인해주세요.', 'notice');
+    return;
+  }
+  await bootAfterAuth();
+}
+
+async function handleLogout(){
+  await authSignOut();
+  state.currentUser = null;
+  showAuthScreen('signin');
+}
+
+async function bootAfterAuth(){
+  const session = await getSession();
+  if(!session){ showAuthScreen('signin'); return; }
+  const profile = await getMyProfile();
+  if(profile && profile.is_active === false){
+    await authSignOut();
+    state.currentUser = null;
+    showAuthScreen('signin');
+    setAuthMessage('비활성화된 계정이에요. 관리자에게 문의해주세요.', 'error');
+    return;
+  }
+  state.currentUser = { id: session.user.id, email: session.user.email, profile };
+  renderUserInfo();
+  showApp();
+  goTab('dashboard');
+}
+
+function renderUserInfo(){
+  const el = document.getElementById('user-info');
+  if(!el || !state.currentUser) return;
+  const { email, profile } = state.currentUser;
+  el.innerHTML = `
+    <span class="user-email">${escapeHtml(email)}</span>
+    ${profile && profile.is_admin ? '<span class="admin-badge">ADMIN</span>' : ''}
+    <button class="btn secondary small" onclick="handleLogout()">로그아웃</button>
+  `;
+  const adminTab = document.getElementById('tab-admin');
+  if(adminTab) adminTab.style.display = (profile && profile.is_admin) ? '' : 'none';
+}
+
+/* ============== ADMIN PANEL ============== */
+async function renderAdminPanel(){
+  const main = document.getElementById('main-content');
+  if(!state.currentUser || !state.currentUser.profile || !state.currentUser.profile.is_admin){
+    main.innerHTML = `<div class="page-head"><h1>관리자</h1><p>이 페이지는 관리자만 볼 수 있어요.</p></div>`;
+    return;
+  }
+  main.innerHTML = `<div class="page-head">
+      <h1>계정 관리</h1>
+      <p>가입된 모든 계정을 확인하고, 관리자 권한이나 활성화 상태를 바꿀 수 있어요.</p>
+    </div>
+    <div id="admin-list" style="color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;font-size:12px;">불러오는 중…</div>`;
+
+  const { data, error } = await window.sb.from('profiles').select('*').order('created_at', { ascending:true });
+  const listEl = document.getElementById('admin-list');
+  if(error){
+    listEl.innerHTML = `<div style="color:var(--brick);font-size:13px;">목록을 불러오지 못했어요: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  listEl.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">
+    ${data.map(p => `
+      <div style="display:flex;align-items:center;gap:16px;background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13.5px;font-weight:600;color:var(--ink);">${escapeHtml(p.display_name || p.email)}</div>
+          <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;">${escapeHtml(p.email)} · 가입 ${fmtDate(new Date(p.created_at).getTime())}</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);white-space:nowrap;">
+          <input type="checkbox" ${p.is_admin?'checked':''} ${p.id===state.currentUser.id?'disabled':''} onchange="toggleProfileFlag('${p.id}','is_admin',this.checked)"> 관리자
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);white-space:nowrap;">
+          <input type="checkbox" ${p.is_active?'checked':''} ${p.id===state.currentUser.id?'disabled':''} onchange="toggleProfileFlag('${p.id}','is_active',this.checked)"> 활성 상태
+        </label>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+async function toggleProfileFlag(userId, field, value){
+  const patch = {}; patch[field] = value;
+  const { error } = await window.sb.from('profiles').update(patch).eq('id', userId);
+  if(error){ showToast('변경에 실패했어요: ' + error.message); renderAdminPanel(); return; }
+  showToast('변경했어요');
+}
+
 /* ============== INIT ============== */
-renderDashboard();
+onAuthStateChange((event) => {
+  if(event === 'SIGNED_OUT'){
+    state.currentUser = null;
+    showAuthScreen('signin');
+  }
+});
+
+(async function initApp(){
+  const session = await getSession();
+  if(!session){ showAuthScreen('signin'); return; }
+  await bootAfterAuth();
+})();
