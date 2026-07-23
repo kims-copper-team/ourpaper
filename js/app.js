@@ -101,7 +101,9 @@ let state = {
   authorDirectory:[], authorDirectoryLoaded:false,
   tables:[], tableSaveTimer:null, tablesLoadFailed:false,
   members:[], membersLoadFailed:false,
-  activeTextareaId:null // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
+  activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
+  openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
+  realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{}
 };
 
 const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__'];
@@ -328,6 +330,7 @@ function escapeHtml(s){
 
 /* ============== NAV ============== */
 function goTab(tab){
+  leaveProjectRealtime(); // 프로젝트 화면을 벗어나면 실시간 채널도 정리
   state.tab = tab;
   document.getElementById('tab-dashboard').classList.toggle('active', tab==='dashboard');
   document.getElementById('tab-guide').classList.toggle('active', tab==='guide');
@@ -568,6 +571,7 @@ async function openWorkspace(id){
   state.members = membersFailed ? [] : members;
   const secs = getSections(project);
   state.currentSectionKey = secs.length ? secs[0].key : null;
+  joinProjectRealtime(id);
   renderWorkspace(project);
 }
 
@@ -619,6 +623,7 @@ async function retryLoadMembers(){
 
 function renderWorkspace(project){
   teardownScrollSpy();
+  state.openProject = project;
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
   const secs = getSections(project);
   const isCustom = project.journalId === 'custom';
@@ -673,6 +678,7 @@ function renderWorkspace(project){
         <div class="ws-meta">
           <span class="journal-badge" style="background:${j.color}22;color:${j.color}">${escapeHtml(j.name)}</span>
           <span class="save-indicator" id="save-indicator">저장됨 · ${fmtDate(project.updatedAt)}</span>
+          <span class="presence-bar" id="presence-bar"></span>
         </div>
       </div>
       <div class="ws-actions">
@@ -808,7 +814,21 @@ function renderManuscriptCanvas(project, isCustom){
 
     contentInput.addEventListener('focus', () => {
       state.activeTextareaId = 'sec-content-input-' + sec.key;
+      updateMyPresenceSection(sec.key);
     });
+
+    // 내가 이 섹션에 타이핑 중일 때 도착한 원격 수정은 즉시 반영하지 않고
+    // 큐에 쌓아뒀다가(handleRemoteEdit 참고), 포커스를 벗어나는 시점에
+    // 반영한다 — 타이핑 중간에 커서 아래 텍스트가 바뀌는 걸 막기 위함.
+    contentInput.addEventListener('blur', () => {
+      const pending = state.pendingRemoteEdits[sec.key];
+      if(pending !== undefined){
+        delete state.pendingRemoteEdits[sec.key];
+        applyRemoteEditToSection(sec.key, pending);
+      }
+    });
+
+    const broadcastThrottled = throttleTrailing((html) => broadcastSectionEdit(sec.key, html), 150);
 
     contentInput.addEventListener('input', ()=>{
       project.content[sec.key] = contentInput.innerHTML;
@@ -822,6 +842,7 @@ function renderManuscriptCanvas(project, isCustom){
       }
       scheduleSave(project);
       refreshTocFilledState(sec.key, plain.trim().length > 0);
+      broadcastThrottled(contentInput.innerHTML);
     });
 
     // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
@@ -916,6 +937,162 @@ function setupScrollSpy(){
     }
   }, { root:null, rootMargin:'-15% 0px -70% 0px', threshold:0 });
   sections.forEach(sec => scrollSpyObserver.observe(sec));
+}
+
+/* ============== 실시간 협업 (Supabase Realtime: broadcast + presence) ==============
+ * 진짜 CRDT(Figma/Google Docs 수준의 무충돌 동시편집)는 아니고, 브로드캐스트
+ * 기반의 "거의 실시간" 동기화다. 서로 다른 섹션을 동시에 편집하는 일반적인
+ * 경우는 충돌 없이 실시간으로 보이고, 아주 드물게 같은 섹션을 동시에 타이핑
+ *하면 나중에 도착한 쪽이 이긴다(마지막에 blur한 사람 기준). 이 정도 트레이드
+ * 오프는 사용자와 합의된 범위.
+ */
+const PRESENCE_COLORS = ['#2F6F5E','#B98A2E','#9A3B2E','#2F4C6E','#5B4B8A','#4E7A3B','#8A3B24','#6B6558'];
+function colorForUser(userId){
+  let hash = 0;
+  for(let i=0; i<userId.length; i++) hash = (hash*31 + userId.charCodeAt(i)) >>> 0;
+  return PRESENCE_COLORS[hash % PRESENCE_COLORS.length];
+}
+
+function throttleTrailing(fn, wait){
+  let timer = null, lastArgs = null, lastCall = 0;
+  return function(...args){
+    lastArgs = args;
+    const now = Date.now();
+    const remaining = wait - (now - lastCall);
+    if(remaining <= 0){
+      lastCall = now;
+      fn(...lastArgs);
+    } else if(!timer){
+      timer = setTimeout(() => {
+        lastCall = Date.now();
+        timer = null;
+        fn(...lastArgs);
+      }, remaining);
+    }
+  };
+}
+
+function joinProjectRealtime(projectId){
+  leaveProjectRealtime();
+  if(!window.sb || !state.currentUser) return;
+  const channel = window.sb.channel('project:' + projectId, {
+    config: { broadcast: { self: false }, presence: { key: state.currentUser.id } }
+  });
+  channel.on('broadcast', { event:'edit' }, (msg) => handleRemoteEdit(msg.payload));
+  channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
+  channel.subscribe((status) => {
+    if(status === 'SUBSCRIBED'){
+      channel.track({
+        userId: state.currentUser.id,
+        email: state.currentUser.email,
+        displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
+        color: colorForUser(state.currentUser.id),
+        sectionKey: state.currentSectionKey || null,
+        at: Date.now()
+      });
+    }
+  });
+  state.realtimeChannel = channel;
+}
+
+function leaveProjectRealtime(){
+  if(state.realtimeChannel && window.sb){
+    window.sb.removeChannel(state.realtimeChannel);
+  }
+  state.realtimeChannel = null;
+  state.presenceUsers = {};
+  state.pendingRemoteEdits = {};
+}
+
+function updatePresenceFromChannel(channel){
+  const raw = channel.presenceState();
+  const users = {};
+  Object.keys(raw).forEach(key => {
+    const metas = raw[key];
+    if(!metas || !metas.length) return;
+    const m = metas[metas.length-1];
+    if(!state.currentUser || m.userId === state.currentUser.id) return; // 나 자신은 제외
+    users[m.userId] = m;
+  });
+  state.presenceUsers = users;
+  renderPresenceBar();
+  refreshTocPresenceDots();
+}
+
+function updateMyPresenceSection(sectionKey){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.track({
+    userId: state.currentUser.id,
+    email: state.currentUser.email,
+    displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
+    color: colorForUser(state.currentUser.id),
+    sectionKey, at: Date.now()
+  });
+}
+
+function broadcastSectionEdit(sectionKey, html){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'edit',
+    payload:{ sectionKey, html, fromUserId: state.currentUser.id, ts: Date.now() }
+  });
+}
+
+function handleRemoteEdit(payload){
+  const { sectionKey, html, fromUserId } = payload || {};
+  if(!sectionKey || fromUserId === (state.currentUser && state.currentUser.id)) return;
+  const el = document.getElementById('sec-content-input-' + sectionKey);
+  if(!el) return; // 지금 다른 화면(Ledger 등)을 보고 있으면 그냥 무시 — 저장은 상대방이 알아서 함
+  if(document.activeElement === el){
+    state.pendingRemoteEdits[sectionKey] = html; // 내가 타이핑 중이면 blur 때까지 보류
+    return;
+  }
+  applyRemoteEditToSection(sectionKey, html);
+}
+
+function applyRemoteEditToSection(sectionKey, html){
+  const el = document.getElementById('sec-content-input-' + sectionKey);
+  if(!el) return;
+  el.innerHTML = html;
+  const plain = el.textContent || '';
+  el.classList.toggle('is-empty', plain.trim().length === 0);
+  if(state.openProject){
+    state.openProject.content[sectionKey] = html;
+    const sec = getSections(state.openProject).find(s => s.key === sectionKey);
+    const wcEl = document.getElementById('wc-display-' + sectionKey);
+    if(wcEl && sec){
+      const w = wordCount(plain);
+      wcEl.textContent = w + '단어' + (sec.limit ? (' / '+sec.limit) : '');
+      wcEl.classList.toggle('over', sec.limit && w>sec.limit);
+    }
+  }
+  refreshTocFilledState(sectionKey, plain.trim().length > 0);
+}
+
+function renderPresenceBar(){
+  const el = document.getElementById('presence-bar');
+  if(!el) return;
+  const users = Object.values(state.presenceUsers || {});
+  if(!users.length){ el.innerHTML = ''; return; }
+  el.innerHTML = users.map(u => `
+    <span class="presence-avatar" style="background:${u.color}22;color:${u.color};border-color:${u.color};" title="${escapeHtml(u.displayName || u.email || '')} · 지금 함께 보는 중">
+      ${escapeHtml(((u.displayName || u.email || '?').trim()[0] || '?').toUpperCase())}
+    </span>
+  `).join('');
+}
+
+function refreshTocPresenceDots(){
+  document.querySelectorAll('.toc-presence').forEach(el => el.remove());
+  Object.values(state.presenceUsers || {}).forEach(u => {
+    if(!u.sectionKey) return;
+    const btn = document.querySelector(`.toc-item[data-section-key="${u.sectionKey}"]`);
+    if(!btn) return;
+    const dot = document.createElement('span');
+    dot.className = 'toc-presence';
+    dot.style.background = u.color;
+    dot.title = (u.displayName || u.email || '') + ' 편집 중';
+    btn.appendChild(dot);
+  });
 }
 
 /* ============== 삽입 패널 (그림/인용 삽입) — 편집 영역 흐름 안에 직접 삽입/제거 ============== */
@@ -2808,6 +2985,7 @@ async function handleSignUp(){
 }
 
 async function handleLogout(){
+  leaveProjectRealtime();
   await authSignOut();
   state.currentUser = null;
   showAuthScreen('signin');
@@ -2894,6 +3072,8 @@ onAuthStateChange((event) => {
     showAuthScreen('signin');
   }
 });
+
+window.addEventListener('beforeunload', () => { leaveProjectRealtime(); });
 
 (async function initApp(){
   const session = await getSession();
