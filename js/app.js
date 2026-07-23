@@ -101,12 +101,13 @@ let state = {
   authorDirectory:[], authorDirectoryLoaded:false,
   tables:[], tableSaveTimer:null, tablesLoadFailed:false,
   members:[], membersLoadFailed:false,
+  highlights:[], highlightsLoadFailed:false,
   activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
   openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
   realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{}
 };
 
-const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__'];
+const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__', '__comments__'];
 function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
 
 /* ============== STORAGE HELPERS (Supabase, 관계형) ==============
@@ -569,6 +570,9 @@ async function openWorkspace(id){
   state.membersLoadFailed = membersFailed;
   state.owner = membersFailed ? null : owner;
   state.members = membersFailed ? [] : members;
+  const { highlights, failed: highlightsFailed } = await listHighlights(id);
+  state.highlightsLoadFailed = highlightsFailed;
+  state.highlights = highlightsFailed ? [] : highlights;
   const secs = getSections(project);
   state.currentSectionKey = secs.length ? secs[0].key : null;
   joinProjectRealtime(id);
@@ -632,11 +636,17 @@ function renderWorkspace(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length; // owner + invited participants
+  const commentCount = (state.highlights || []).length;
 
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+    </button>`;
+  const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
+      <span class="toc-num">✎</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">코멘트${state.highlightsLoadFailed ? ' ⚠' : (commentCount ? ` (${commentCount})` : '')}</span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
@@ -696,6 +706,7 @@ function renderWorkspace(project){
     <div class="ws-body" style="margin-top:22px;">
       <div class="toc">
         ${membersBtn}
+        ${commentsBtn}
         ${authorsBtn}
         ${figuresBtn}
         ${tablesBtn}
@@ -725,6 +736,8 @@ function renderWorkspace(project){
 
   if(state.currentSectionKey === '__members__'){
     renderMembersManager(project);
+  } else if(state.currentSectionKey === '__comments__'){
+    renderCommentsManager(project);
   } else if(state.currentSectionKey === '__authors__'){
     renderAuthorManager(project);
   } else if(state.currentSectionKey === '__figures__'){
@@ -788,6 +801,7 @@ function renderManuscriptCanvas(project, isCustom){
           <button class="btn secondary small" onclick="toggleInsertPicker('figures','${sec.key}')">＋ 그림 삽입</button>
           <button class="btn secondary small" onclick="toggleInsertPicker('tables','${sec.key}')">＋ 표 삽입</button>
           <button class="btn secondary small" onclick="toggleInsertPicker('refs','${sec.key}')">＋ 인용 삽입</button>
+          <button class="btn secondary small" onclick="addHighlightToSection('${sec.key}')">＋ 하이라이트</button>
           ${sec.limit ? `<span class="section-limit">권장 ${sec.limit}단어 이내</span>` : ''}
           ${isCustom ? `<button class="icon-btn" title="섹션 삭제" onclick="removeCustomSection('${sec.key}')">✕</button>` : ''}
         </div>
@@ -876,6 +890,11 @@ function renderManuscriptCanvas(project, isCustom){
         sel.removeAllRanges();
         sel.addRange(range);
       }, 0);
+    });
+
+    contentInput.addEventListener('click', (e) => {
+      const mark = e.target.closest('mark.hl');
+      if(mark) openHighlightPopover(mark.dataset.hlId, mark);
     });
 
     if(isCustom){
@@ -979,6 +998,7 @@ function joinProjectRealtime(projectId){
     config: { broadcast: { self: false }, presence: { key: state.currentUser.id } }
   });
   channel.on('broadcast', { event:'edit' }, (msg) => handleRemoteEdit(msg.payload));
+  channel.on('broadcast', { event:'highlight' }, (msg) => handleRemoteHighlightEvent(msg.payload));
   channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
   channel.subscribe((status) => {
     if(status === 'SUBSCRIBED'){
@@ -1952,6 +1972,271 @@ async function submitRemoveMember(userId){
   renderWorkspace(project);
 }
 
+/* ============== 하이라이트 & 코멘트 ==============
+ * 하이라이트된 구간은 <mark class="hl" data-hl-id="..."> 형태로 섹션 본문
+ * HTML 안에 직접 삽입된다(그림/표와 같은 방식) — 색은 유저별로 결정적으로
+ * 정해지고(colorForUser, Phase 2 실시간 프레즌스와 동일 팔레트 재사용),
+ * 메타데이터(작성자·메모)는 highlights 테이블에 별도로 저장된다.
+ */
+function mapHighlightRow(row){
+  return {
+    id: row.id, sectionKey: row.section_key, userId: row.user_id,
+    quoteText: row.quote_text, note: row.note || '',
+    createdAt: new Date(row.created_at).getTime(),
+    email: row.profiles ? row.profiles.email : '',
+    displayName: row.profiles ? row.profiles.display_name : ''
+  };
+}
+
+async function listHighlights(projectId){
+  for(let i=0; i<3; i++){
+    const { data, error } = await window.sb.from('highlights')
+      .select('id,section_key,user_id,quote_text,note,created_at,profiles(email,display_name)')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending:true });
+    if(!error) return { highlights: (data||[]).map(mapHighlightRow), failed:false };
+    console.error(`코멘트 목록 조회 실패 (시도 ${i+1}/3):`, error);
+    await new Promise(res => setTimeout(res, 400*(i+1)));
+  }
+  return { highlights:null, failed:true };
+}
+
+async function createHighlightRow(projectId, sectionKey, quoteText){
+  const session = await getSession();
+  if(!session) return { highlight:null, error:new Error('로그인이 필요합니다') };
+  const { data, error } = await window.sb.from('highlights').insert({
+    project_id: projectId, section_key: sectionKey, user_id: session.user.id, quote_text: quoteText, note:''
+  }).select('id,section_key,user_id,quote_text,note,created_at').single();
+  if(error) return { highlight:null, error };
+  const profile = state.currentUser && state.currentUser.profile;
+  return { highlight: mapHighlightRow(Object.assign({}, data, { profiles: profile })), error:null };
+}
+
+async function updateHighlightNoteRow(id, note){
+  const { error } = await window.sb.from('highlights').update({ note, updated_at:new Date().toISOString() }).eq('id', id);
+  if(error){ console.error('코멘트 저장 실패:', error); return false; }
+  return true;
+}
+
+async function deleteHighlightRow(id){
+  const { error } = await window.sb.from('highlights').delete().eq('id', id);
+  if(error){ console.error('코멘트 삭제 실패:', error); return false; }
+  return true;
+}
+
+async function retryLoadHighlights(){
+  const { highlights, failed } = await listHighlights(state.currentProjectId);
+  state.highlightsLoadFailed = failed;
+  if(failed){ showToast('아직도 불러오지 못했어요. 잠시 후 다시 시도해주세요'); }
+  else { state.highlights = highlights; showToast('코멘트 목록을 다시 불러왔어요'); }
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
+}
+
+function persistSectionAfterHighlightChange(sectionKey){
+  const el = document.getElementById('sec-content-input-' + sectionKey);
+  if(!el || !state.openProject) return;
+  state.openProject.content[sectionKey] = el.innerHTML;
+  scheduleSave(state.openProject);
+  broadcastSectionEdit(sectionKey, el.innerHTML);
+}
+
+async function addHighlightToSection(sectionKey){
+  const el = document.getElementById('sec-content-input-' + sectionKey);
+  if(!el) return;
+  const sel = window.getSelection();
+  if(!sel.rangeCount || sel.isCollapsed || !el.contains(sel.anchorNode)){
+    showToast('먼저 하이라이트할 문구를 본문에서 선택해주세요');
+    return;
+  }
+  const range = sel.getRangeAt(0).cloneRange();
+  const quoteText = range.toString();
+  if(!quoteText.trim()){ showToast('먼저 하이라이트할 문구를 본문에서 선택해주세요'); return; }
+
+  let mark;
+  try{
+    mark = document.createElement('mark');
+    mark.className = 'hl';
+    range.surroundContents(mark);
+  }catch(e){
+    showToast('이 범위는 하이라이트할 수 없어요. 한 문단 안에서 다시 선택해주세요');
+    return;
+  }
+  mark.style.setProperty('--hl-color', colorForUser(state.currentUser.id));
+  mark.dataset.hlUser = state.currentUser.id;
+  sel.removeAllRanges();
+
+  const { highlight, error } = await createHighlightRow(state.currentProjectId, sectionKey, quoteText);
+  if(!highlight){
+    mark.replaceWith(...mark.childNodes); // 저장 실패 시 표시만 롤백 (텍스트는 그대로 둠)
+    showToast('하이라이트 저장에 실패했어요' + (error ? ': ' + error.message : ''));
+    return;
+  }
+  mark.dataset.hlId = highlight.id;
+  state.highlights = state.highlights || [];
+  state.highlights.push(highlight);
+  refreshTocOnly(state.openProject);
+
+  persistSectionAfterHighlightChange(sectionKey);
+  broadcastHighlightEvent('create', highlight);
+  openHighlightPopover(highlight.id, mark);
+}
+
+function closeHighlightPopover(){
+  const pop = document.getElementById('highlight-popover');
+  if(pop) pop.remove();
+  document.removeEventListener('mousedown', hlPopoverOutsideClick, true);
+}
+
+function hlPopoverOutsideClick(e){
+  const pop = document.getElementById('highlight-popover');
+  if(pop && !pop.contains(e.target)) closeHighlightPopover();
+}
+
+function openHighlightPopover(highlightId, markEl){
+  closeHighlightPopover();
+  const h = (state.highlights || []).find(x => x.id === highlightId);
+  if(!h || !markEl) return;
+  const rect = markEl.getBoundingClientRect();
+  const isMine = h.userId === state.currentUser.id;
+  const isOwner = state.openProject && state.openProject.ownerId === state.currentUser.id;
+  const color = colorForUser(h.userId);
+
+  const pop = document.createElement('div');
+  pop.id = 'highlight-popover';
+  pop.className = 'hl-popover';
+  pop.style.left = Math.max(8, rect.left + window.scrollX) + 'px';
+  pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+  pop.innerHTML = `
+    <div class="hl-popover-head">
+      <span class="hl-popover-author" style="color:${color}">${escapeHtml(h.displayName || h.email || '알 수 없음')}</span>
+      <span class="hl-popover-date">${fmtDate(h.createdAt)}</span>
+    </div>
+    <div class="hl-popover-quote">${escapeHtml(h.quoteText)}</div>
+    ${isMine
+      ? `<textarea class="hl-popover-note-input" id="hl-note-input" placeholder="메모를 남겨보세요">${escapeHtml(h.note)}</textarea>
+         <div class="hl-popover-actions">
+           <button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>
+           <button class="btn small" onclick="saveHighlightNote('${h.id}')">저장</button>
+         </div>`
+      : `<div class="hl-popover-note">${h.note ? escapeHtml(h.note) : '<i>메모 없음</i>'}</div>
+         ${isOwner ? `<div class="hl-popover-actions"><button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button></div>` : ''}`
+    }
+  `;
+  document.body.appendChild(pop);
+  if(isMine){ const ta = document.getElementById('hl-note-input'); if(ta) ta.focus(); }
+  setTimeout(() => document.addEventListener('mousedown', hlPopoverOutsideClick, true), 0);
+}
+
+async function saveHighlightNote(id){
+  const input = document.getElementById('hl-note-input');
+  if(!input) return;
+  const note = input.value;
+  const ok = await updateHighlightNoteRow(id, note);
+  if(!ok){ showToast('저장에 실패했어요'); return; }
+  const h = (state.highlights || []).find(x => x.id === id);
+  if(h){ h.note = note; broadcastHighlightEvent('update', h); }
+  showToast('메모를 저장했어요');
+  closeHighlightPopover();
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+}
+
+async function deleteHighlightAndUnwrap(id){
+  const h = (state.highlights || []).find(x => x.id === id);
+  if(!h) return;
+  const ok = await deleteHighlightRow(id);
+  if(!ok){ showToast('삭제에 실패했어요'); return; }
+  state.highlights = (state.highlights || []).filter(x => x.id !== id);
+  closeHighlightPopover();
+  const mark = document.querySelector(`mark.hl[data-hl-id="${id}"]`);
+  if(mark){
+    mark.replaceWith(...mark.childNodes); // 밑줄 표시만 제거, 텍스트는 그대로 유지
+    persistSectionAfterHighlightChange(h.sectionKey);
+  }
+  broadcastHighlightEvent('delete', h);
+  if(state.openProject) refreshTocOnly(state.openProject);
+  showToast('코멘트를 삭제했어요');
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+}
+
+async function jumpToHighlight(id){
+  const h = (state.highlights || []).find(x => x.id === id);
+  if(!h) return;
+  await selectSection(h.sectionKey);
+  await new Promise(res => setTimeout(res, 350));
+  const mark = document.querySelector(`mark.hl[data-hl-id="${id}"]`);
+  if(!mark){ showToast('본문에서 이 하이라이트를 찾지 못했어요'); return; }
+  mark.scrollIntoView({ behavior:'smooth', block:'center' });
+  mark.classList.add('hl-flash');
+  setTimeout(() => mark.classList.remove('hl-flash'), 1500);
+  openHighlightPopover(id, mark);
+}
+
+function renderCommentsManager(project){
+  const pane = document.getElementById('editor-pane');
+
+  if(state.highlightsLoadFailed){
+    pane.innerHTML = `
+      <div class="editor-head"><h2>코멘트</h2></div>
+      <div style="text-align:center;padding:56px 20px;">
+        <div style="font-family:'Times New Roman','맑은 고딕',serif;font-size:17px;font-weight:600;margin-bottom:6px;">코멘트 목록을 불러오지 못했어요</div>
+        <div style="color:var(--ink-soft);font-size:13px;line-height:1.7;max-width:360px;margin:0 auto 18px;">일시적인 저장소 서버 오류예요. 잠시 후 다시 시도해주세요.</div>
+        <button class="btn small" onclick="retryLoadHighlights()">다시 시도</button>
+      </div>
+    `;
+    return;
+  }
+
+  const list = state.highlights || [];
+  const secs = getSections(project);
+  const labelFor = (key) => (secs.find(s => s.key === key) || {}).label || key;
+
+  const cards = list.map(h => {
+    const color = colorForUser(h.userId);
+    return `
+    <div class="ref-card">
+      <div class="ref-num-badge" style="background:${color}22;color:${color};border-color:${color};">✎</div>
+      <div class="ref-body">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+          <span style="font-weight:600;font-size:12.5px;color:${color};">${escapeHtml(h.displayName || h.email || '알 수 없음')}</span>
+          <button class="btn secondary small" onclick="jumpToHighlight('${h.id}')">본문에서 보기</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;margin:4px 0;">${escapeHtml(labelFor(h.sectionKey))} · ${fmtDate(h.createdAt)}</div>
+        <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:13.5px;color:var(--ink);border-left:3px solid ${color};padding-left:8px;margin-bottom:${h.note?'6px':'0'};">${escapeHtml(h.quoteText)}</div>
+        ${h.note ? `<div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;">${escapeHtml(h.note)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  pane.innerHTML = `
+    <div class="editor-head"><h2>코멘트</h2><span class="section-limit">${list.length}개</span></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">본문에서 문구를 드래그해 선택한 뒤, 각 섹션 상단의 "＋ 하이라이트" 버튼을 누르면 그 자리에 메모를 남길 수 있어요. 메모 색은 남긴 사람마다 자동으로 달라져요. 여기서는 프로젝트 전체의 코멘트를 한눈에 모아볼 수 있어요.</div>
+    <div class="fig-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 코멘트가 없습니다</div>`}</div>
+  `;
+}
+
+function broadcastHighlightEvent(action, highlight){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'highlight',
+    payload:{ action, highlight, fromUserId: state.currentUser.id }
+  });
+}
+
+function handleRemoteHighlightEvent(payload){
+  const { action, highlight, fromUserId } = payload || {};
+  if(!highlight || fromUserId === (state.currentUser && state.currentUser.id)) return;
+  state.highlights = state.highlights || [];
+  if(action === 'create' || action === 'update'){
+    const idx = state.highlights.findIndex(h => h.id === highlight.id);
+    if(idx === -1) state.highlights.push(highlight); else state.highlights[idx] = highlight;
+  } else if(action === 'delete'){
+    state.highlights = state.highlights.filter(h => h.id !== highlight.id);
+  }
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+  else if(state.openProject) refreshTocOnly(state.openProject);
+}
+
 /* ============== REF LEDGER (참고문헌 관리) ============== */
 let refFormOpen = false;
 
@@ -2392,10 +2677,16 @@ function refreshTocOnly(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length;
+  const commentCount = (state.highlights || []).length;
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+    </button>`;
+  const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
+      <span class="toc-num">✎</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">코멘트${state.highlightsLoadFailed ? ' ⚠' : (commentCount ? ` (${commentCount})` : '')}</span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
@@ -2426,7 +2717,7 @@ function refreshTocOnly(project){
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
     </button>`;
   }).join('');
-  toc.innerHTML = membersBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
+  toc.innerHTML = membersBtn + commentsBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
 }
 
 async function selectSection(key){
@@ -2461,6 +2752,13 @@ async function selectTables(){
 
 async function selectMembers(){
   state.currentSectionKey = '__members__';
+  const project = await getProject(state.currentProjectId);
+  if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  renderWorkspace(project);
+}
+
+async function selectComments(){
+  state.currentSectionKey = '__comments__';
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
