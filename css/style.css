@@ -271,6 +271,28 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .fig-actions button:hover{ color:var(--ink); background:var(--paper); }
 .fig-actions button.fig-delete:hover{ color:var(--brick); }
 
+.tbl-card{ display:flex; flex-direction:column; gap:6px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; }
+.tbl-card.dragging{ opacity:0.35; }
+.tbl-card.drag-over{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
+.tbl-card-head{ display:flex; align-items:center; gap:10px; }
+.tbl-grid-wrap{ overflow-x:auto; margin-top:4px; }
+.tbl-edit-grid{ border-collapse:collapse; }
+.tbl-edit-grid th, .tbl-edit-grid td{ border:1px solid var(--line); padding:0; }
+.tbl-cell-input{ width:100px; box-sizing:border-box; border:none; background:transparent; padding:7px 8px; font-family:'Times New Roman', '맑은 고딕', serif; font-size:12.5px; color:var(--ink); }
+.tbl-cell-input:focus{ background:var(--gold-bg); outline:none; }
+.tbl-col-remove{ border:none; background:none; color:var(--ink-faint); font-size:10px; padding:0 4px; flex-shrink:0; }
+.tbl-col-remove:hover{ color:var(--brick); }
+.tbl-grid-actions{ border:none !important; text-align:center; vertical-align:middle; }
+.tbl-grid-actions button{ border:none; background:none; color:var(--ink-faint); font-size:13px; padding:6px 8px; }
+.tbl-grid-actions button:hover{ color:var(--ink); }
+
+.inline-table{ margin:16px 0; }
+.inline-table-caption{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:13.5px; color:var(--ink); margin-bottom:8px; line-height:1.5; }
+.paper-table{ width:100%; border-collapse:collapse; font-family:'Times New Roman', '맑은 고딕', serif; font-size:13.5px; }
+.paper-table thead th{ text-align:left; font-weight:700; padding:7px 10px; border-top:1.5px solid var(--ink); border-bottom:1px solid var(--ink); }
+.paper-table tbody td{ text-align:left; padding:7px 10px; }
+.paper-table tbody tr:last-child td{ border-bottom:1.5px solid var(--ink); }
+
 .inline-insert-picker{
   display:block; width:100%; box-sizing:border-box; margin:0 0 16px; max-height:280px; overflow-y:auto;
   background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius);

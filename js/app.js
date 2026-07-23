@@ -160,6 +160,14 @@ async function getFigures(projectId){
 async function setFigures(projectId, figures){ return storageSet('figures:'+projectId, figures); }
 async function deleteFiguresStorage(projectId){ return storageDelete('figures:'+projectId); }
 
+async function getTables(projectId){
+  const { value, failed } = await storageGetWithRetry('tables:'+projectId, 3);
+  if(failed) return { tables:null, failed:true };
+  return { tables: value || [], failed:false };
+}
+async function setTables(projectId, tables){ return storageSet('tables:'+projectId, tables); }
+async function deleteTablesStorage(projectId){ return storageDelete('tables:'+projectId); }
+
 async function getReferences(projectId){
   const { value, failed } = await storageGetWithRetry('refs:'+projectId, 3);
   if(failed) return { references:null, failed:true };
@@ -477,6 +485,14 @@ async function openWorkspace(id){
   } else {
     state.authors = authors;
   }
+  const { tables, failed: tablesFailed } = await getTables(id);
+  state.tablesLoadFailed = tablesFailed;
+  if(tablesFailed){
+    state.tables = [];
+    showToast('표 목록을 불러오지 못했어요 (일시적 오류)');
+  } else {
+    state.tables = tables;
+  }
   const secs = getSections(project);
   state.currentSectionKey = secs.length ? secs[0].key : null;
   renderWorkspace(project);
@@ -509,6 +525,15 @@ async function retryLoadAuthors(){
   if(project) renderWorkspace(project);
 }
 
+async function retryLoadTables(){
+  const { tables, failed } = await getTables(state.currentProjectId);
+  state.tablesLoadFailed = failed;
+  if(failed){ showToast('아직도 불러오지 못했어요. 잠시 후 다시 시도해주세요'); }
+  else { state.tables = tables; showToast('표 목록을 다시 불러왔어요'); }
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
+}
+
 function renderWorkspace(project){
   teardownScrollSpy();
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
@@ -517,6 +542,7 @@ function renderWorkspace(project){
   const figCount = (state.figures || []).length;
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
+  const tableCount = (state.tables || []).length;
 
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
@@ -527,6 +553,11 @@ function renderWorkspace(project){
       <span class="toc-num">▤</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
+    </button>`;
+  const tablesBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__tables__'?'active':''}" data-section-key="__tables__" onclick="selectTables()">
+      <span class="toc-num">▦</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">Table Ledger${state.tablesLoadFailed ? ' ⚠' : (tableCount ? ` (${tableCount})` : '')}</span>
     </button>`;
   const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
@@ -571,6 +602,7 @@ function renderWorkspace(project){
       <div class="toc">
         ${authorsBtn}
         ${figuresBtn}
+        ${tablesBtn}
         ${refsBtn}
         ${tocItems}
         ${isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : ''}
@@ -599,6 +631,8 @@ function renderWorkspace(project){
     renderAuthorManager(project);
   } else if(state.currentSectionKey === '__figures__'){
     renderFigureManager(project);
+  } else if(state.currentSectionKey === '__tables__'){
+    renderTableManager(project);
   } else if(state.currentSectionKey === '__refs__'){
     renderRefManager(project);
   } else {
@@ -654,6 +688,7 @@ function renderManuscriptCanvas(project, isCustom){
         ${labelField}
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
           <button class="btn secondary small" onclick="toggleInsertPicker('figures','${sec.key}')">＋ 그림 삽입</button>
+          <button class="btn secondary small" onclick="toggleInsertPicker('tables','${sec.key}')">＋ 표 삽입</button>
           <button class="btn secondary small" onclick="toggleInsertPicker('refs','${sec.key}')">＋ 인용 삽입</button>
           ${sec.limit ? `<span class="section-limit">권장 ${sec.limit}단어 이내</span>` : ''}
           ${isCustom ? `<button class="icon-btn" title="섹션 삭제" onclick="removeCustomSection('${sec.key}')">✕</button>` : ''}
@@ -706,18 +741,19 @@ function renderManuscriptCanvas(project, isCustom){
     // 유지된다. 또한 커서는 반드시 실제 텍스트 줄(요소와 요소 "사이"가
     // 아니라) 안에 있어야 타이핑이 씹히지 않는다.
     contentInput.addEventListener('mousedown', (e) => {
-      const figure = e.target.closest && e.target.closest('.inline-figure');
-      if(!figure || !contentInput.contains(figure)) return;
+      const block = e.target.closest && e.target.closest('.inline-figure, .inline-table');
+      if(!block || !contentInput.contains(block)) return;
       e.preventDefault();
       const clickY = e.clientY;
       setTimeout(() => {
-        const rect = figure.getBoundingClientRect();
+        const rect = block.getBoundingClientRect();
         const after = (clickY - rect.top) > rect.height / 2;
-        let target = after ? figure.nextElementSibling : figure.previousElementSibling;
-        if(!target || target.classList.contains('inline-figure')){
+        let target = after ? block.nextElementSibling : block.previousElementSibling;
+        const isAtomicBlock = (el) => el && (el.classList.contains('inline-figure') || el.classList.contains('inline-table'));
+        if(!target || isAtomicBlock(target)){
           target = document.createElement('div');
           target.innerHTML = '<br>';
-          if(after){ figure.after(target); } else { figure.before(target); }
+          if(after){ block.after(target); } else { block.before(target); }
         }
         const range = document.createRange();
         range.selectNodeContents(target);
@@ -860,7 +896,7 @@ function toggleInsertPicker(kind, sectionKey){
   panel.className = 'inline-insert-picker';
   panel.dataset.kind = kind;
   if(sectionKey) panel.dataset.sectionKey = sectionKey;
-  panel.innerHTML = kind === 'figures' ? buildFigureInsertPanel() : buildRefInsertItemsHtml();
+  panel.innerHTML = kind === 'figures' ? buildFigureInsertPanel() : kind === 'tables' ? buildTableInsertPanel() : buildRefInsertItemsHtml();
   head.insertAdjacentElement('afterend', panel);
 }
 
@@ -923,6 +959,64 @@ function pickRefInsert(index){
   closeInsertPicker();
 }
 
+function buildTableInsertPanel(){
+  const mode = state.tableInsertMode || 'embed';
+  const tables = state.tables || [];
+  const tabs = `
+    <div class="insert-tabs">
+      <button class="insert-tab ${mode==='embed'?'active':''}" onclick="setTableInsertMode('embed')">표 전체 + 캡션</button>
+      <button class="insert-tab ${mode==='cite'?'active':''}" onclick="setTableInsertMode('cite')">인용만 (Table N)</button>
+    </div>`;
+  let itemsHtml;
+  if(state.tablesLoadFailed){
+    itemsHtml = `<div class="insert-popover-empty">표 목록을 불러오지 못했어요.<br>Table Ledger에서 다시 시도해주세요.</div>`;
+  } else if(tables.length === 0){
+    itemsHtml = `<div class="insert-popover-empty">아직 만든 표가 없어요.<br>Table Ledger에서 먼저 추가해보세요.</div>`;
+  } else {
+    itemsHtml = tables.map((t,i) => `
+      <button class="insert-item" onclick="pickTableInsert(${i})">
+        <span class="insert-num">T${i+1}</span>
+        <span class="insert-text">
+          <div class="insert-primary">Table ${i+1}</div>
+          <div class="insert-secondary">${escapeHtml(t.caption || '(캡션 미작성)')}</div>
+        </span>
+      </button>
+    `).join('');
+  }
+  return tabs + itemsHtml;
+}
+
+function setTableInsertMode(mode){
+  state.tableInsertMode = mode;
+  const panel = document.getElementById('inline-insert-picker');
+  if(panel) panel.innerHTML = buildTableInsertPanel();
+}
+
+function buildInlineTableHtml(t, num){
+  const captionText = escapeHtml(t.caption || '(캡션 미작성)');
+  const columns = t.columns || [];
+  const rows = t.rows || [];
+  const theadHtml = `<tr>${columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr>`;
+  const tbodyHtml = rows.map(row => `<tr>${columns.map((c,ci) => `<td>${escapeHtml(row[ci]||'')}</td>`).join('')}</tr>`).join('');
+  return `<div class="inline-table" contenteditable="false" data-table-id="${t.id}">` +
+    `<div class="inline-table-caption"><b>Table ${num}.</b> ${captionText}</div>` +
+    `<table class="paper-table"><thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody></table>` +
+    `</div><div><br></div>`;
+}
+
+function pickTableInsert(index){
+  const tables = state.tables || [];
+  const t = tables[index];
+  if(!t) return;
+  const mode = state.tableInsertMode || 'embed';
+  if(mode === 'embed'){
+    insertContentAtCursor(buildInlineTableHtml(t, index+1));
+  } else {
+    insertContentAtCursor(escapeHtml(`Table ${index+1}`));
+  }
+  closeInsertPicker();
+}
+
 /* ============== 순서 변경 시 본문 번호 자동 갱신 ============== */
 function buildOldNewMapping(oldIds, newIds){
   const newIndexById = {};
@@ -965,6 +1059,8 @@ function refTokenMatcher(n){ return new RegExp('\\[' + n + '\\]', 'g'); }
 function refTokenRender(n){ return `[${n}]`; }
 function figTokenMatcher(n){ return new RegExp('Fig\\.\\s*' + n + '(?!\\d)', 'g'); }
 function figTokenRender(n){ return `Fig. ${n}`; }
+function tableTokenMatcher(n){ return new RegExp('Table\\s*' + n + '(?!\\d)', 'g'); }
+function tableTokenRender(n){ return `Table ${n}`; }
 
 // 본문에 실제로 삽입된(embed) 그림 블록의 캡션을 Fig Ledger 캡션과 동기화
 function syncEmbeddedFigureCaption(project, figureId, figNum, newCaption){
@@ -1177,6 +1273,273 @@ async function reorderFigures(srcId, targetId){
     showToast('본문의 그림 번호를 새 순서에 맞게 업데이트했어요');
   }
   renderWorkspace(project);
+}
+
+/* ============== TABLE LEDGER (표 관리) ============== */
+function makeEmptyTable(){
+  return {
+    id: 'tbl_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    caption: '', note: '',
+    columns: ['', ''],
+    rows: [['', '']],
+    addedAt: Date.now()
+  };
+}
+
+function renderTableManager(project){
+  const pane = document.getElementById('editor-pane');
+
+  if(state.tablesLoadFailed){
+    pane.innerHTML = `
+      <div class="editor-head"><h2>Table Ledger</h2></div>
+      <div style="text-align:center;padding:56px 20px;">
+        <div style="font-family:'Times New Roman','맑은 고딕',serif;font-size:17px;font-weight:600;margin-bottom:6px;">표 목록을 불러오지 못했어요</div>
+        <div style="color:var(--ink-soft);font-size:13px;line-height:1.7;max-width:360px;margin:0 auto 18px;">일시적인 저장소 서버 오류예요. 만들어두신 표가 삭제된 게 아니니 안심하세요 — 잠시 후 다시 시도해주세요.</div>
+        <button class="btn small" onclick="retryLoadTables()">다시 시도</button>
+      </div>
+    `;
+    return;
+  }
+
+  const tables = state.tables || [];
+
+  const cards = tables.map((t, i) => {
+    const columns = t.columns || [];
+    const rows = t.rows || [];
+    const headHtml = columns.map((c, ci) => `
+      <th>
+        <div style="display:flex;align-items:center;gap:2px;">
+          <input class="tbl-cell-input" data-table-id="${t.id}" data-kind="col" data-ci="${ci}" value="${escapeHtml(c)}" placeholder="열 이름" style="font-weight:600;">
+          ${columns.length > 1 ? `<button class="tbl-col-remove" title="열 삭제" onclick="removeTableColumn('${t.id}',${ci})">✕</button>` : ''}
+        </div>
+      </th>
+    `).join('');
+    const bodyHtml = rows.map((row, ri) => `
+      <tr>
+        ${columns.map((c, ci) => `<td><input class="tbl-cell-input" data-table-id="${t.id}" data-kind="cell" data-ri="${ri}" data-ci="${ci}" value="${escapeHtml(row[ci] || '')}"></td>`).join('')}
+        <td class="tbl-grid-actions"><button title="행 삭제" onclick="removeTableRow('${t.id}',${ri})">✕</button></td>
+      </tr>
+    `).join('');
+
+    return `
+    <div class="tbl-card" draggable="true" data-table-id="${t.id}">
+      <div class="tbl-card-head">
+        <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
+        <span class="fig-label">Table ${i+1}</span>
+        <div class="fig-actions" style="margin-left:auto;">
+          <button title="위로" onclick="moveTable('${t.id}',-1)" ${i===0?'disabled style="opacity:.3;"':''}>↑</button>
+          <button title="아래로" onclick="moveTable('${t.id}',1)" ${i===tables.length-1?'disabled style="opacity:.3;"':''}>↓</button>
+          <button class="fig-delete" title="삭제" onclick="removeTable('${t.id}')">✕</button>
+        </div>
+      </div>
+      <label class="fig-field-label">캡션 (표 위에 표시됨, 본문·Word 내보내기에 포함)</label>
+      <textarea class="fig-caption-input tbl-caption-input" data-table-id="${t.id}" placeholder="캡션을 입력하세요 (예: Chemistry composition of designed alloy, wt%.)">${escapeHtml(t.caption||'')}</textarea>
+      <label class="fig-field-label fig-field-label-note">메모 (나만 보는 작업 메모)</label>
+      <textarea class="fig-note-input tbl-note-input" data-table-id="${t.id}" placeholder="예: 마지막 합금 조성값 재확인 필요">${escapeHtml(t.note||'')}</textarea>
+      <div class="tbl-grid-wrap">
+        <table class="tbl-edit-grid">
+          <thead><tr>${headHtml}<th class="tbl-grid-actions"><button title="열 추가" onclick="addTableColumn('${t.id}')">＋</button></th></tr></thead>
+          <tbody>${bodyHtml || ''}</tbody>
+        </table>
+      </div>
+      <button class="btn secondary small" style="margin-top:8px;align-self:flex-start;" onclick="addTableRow('${t.id}')">＋ 행 추가</button>
+    </div>`;
+  }).join('');
+
+  pane.innerHTML = `
+    <div class="editor-head"><h2>Table Ledger</h2><span class="section-limit">${tables.length}개</span></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">표를 만들고 캡션을 작성하세요. 만든 순서대로 Table 1, 2, 3…으로 번호가 매겨지고, 카드를 끌어다 놓거나(⋮⋮) 화살표로 순서를 바꿀 수 있어요. 본문 섹션에서는 "＋ 표 삽입" 버튼으로 표 전체를 캡션과 함께 커서 위치에 넣거나, 표는 다른 곳에 두고 "Table N" 인용만 넣을 수 있어요. 순서를 바꾸면 본문의 "Table N" 표기도 자동으로 업데이트돼요. Word로 내보내면 3선(three-line) 표 형식으로 정리됩니다.</div>
+
+    <button class="btn secondary small" style="margin-bottom:16px;" onclick="addNewTable()">＋ 표 추가</button>
+    <div class="fig-list" id="tbl-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 만든 표가 없습니다</div>`}</div>
+  `;
+
+  pane.querySelectorAll('.tbl-caption-input').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const tableId = e.target.dataset.tableId;
+      const idx = (state.tables || []).findIndex(t => t.id === tableId);
+      if(idx === -1) return;
+      state.tables[idx].caption = e.target.value;
+      scheduleTableSave();
+      getProject(state.currentProjectId).then(project => {
+        if(!project) return;
+        const changed = syncEmbeddedTableCaption(project, tableId, idx+1, e.target.value);
+        if(changed) setProject(project);
+      });
+    });
+  });
+  pane.querySelectorAll('.tbl-note-input').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const t = (state.tables || []).find(t => t.id === e.target.dataset.tableId);
+      if(t) t.note = e.target.value;
+      scheduleTableSave();
+    });
+  });
+  pane.querySelectorAll('.tbl-cell-input').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const t = (state.tables || []).find(t => t.id === e.target.dataset.tableId);
+      if(!t) return;
+      const kind = e.target.dataset.kind;
+      if(kind === 'col'){
+        const ci = Number(e.target.dataset.ci);
+        t.columns[ci] = e.target.value;
+      } else {
+        const ri = Number(e.target.dataset.ri), ci = Number(e.target.dataset.ci);
+        if(!t.rows[ri]) t.rows[ri] = [];
+        t.rows[ri][ci] = e.target.value;
+      }
+      scheduleTableSave();
+    });
+  });
+
+  // 드래그 앤 드롭 순서 변경
+  let dragSrcId = null;
+  pane.querySelectorAll('.tbl-card').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      dragSrcId = card.dataset.tableId;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.tableId);
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if(card.dataset.tableId !== dragSrcId) card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const targetId = card.dataset.tableId;
+      if(dragSrcId && dragSrcId !== targetId) reorderTables(dragSrcId, targetId);
+    });
+  });
+}
+
+async function addNewTable(){
+  state.tables = state.tables || [];
+  state.tables.push(makeEmptyTable());
+  const ok = await setTables(state.currentProjectId, state.tables);
+  if(!ok) showToast('표 저장에 실패했어요. 다시 시도해주세요');
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
+}
+
+async function removeTable(id){
+  state.tables = (state.tables || []).filter(t => t.id !== id);
+  const ok = await setTables(state.currentProjectId, state.tables);
+  if(!ok) showToast('삭제 내용을 저장하지 못했어요');
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
+}
+
+function addTableColumn(id){
+  const t = (state.tables || []).find(t => t.id === id);
+  if(!t) return;
+  t.columns.push('');
+  (t.rows || []).forEach(row => row.push(''));
+  scheduleTableSave();
+  getProject(state.currentProjectId).then(project => { if(project) renderWorkspace(project); });
+}
+
+function removeTableColumn(id, ci){
+  const t = (state.tables || []).find(t => t.id === id);
+  if(!t || t.columns.length <= 1) return;
+  t.columns.splice(ci, 1);
+  (t.rows || []).forEach(row => row.splice(ci, 1));
+  scheduleTableSave();
+  getProject(state.currentProjectId).then(project => { if(project) renderWorkspace(project); });
+}
+
+function addTableRow(id){
+  const t = (state.tables || []).find(t => t.id === id);
+  if(!t) return;
+  t.rows = t.rows || [];
+  t.rows.push(t.columns.map(()=>''));
+  scheduleTableSave();
+  getProject(state.currentProjectId).then(project => { if(project) renderWorkspace(project); });
+}
+
+function removeTableRow(id, ri){
+  const t = (state.tables || []).find(t => t.id === id);
+  if(!t) return;
+  t.rows.splice(ri, 1);
+  scheduleTableSave();
+  getProject(state.currentProjectId).then(project => { if(project) renderWorkspace(project); });
+}
+
+async function moveTable(id, dir){
+  const tables = state.tables || [];
+  const idx = tables.findIndex(t => t.id === id);
+  const target = idx + dir;
+  if(idx < 0 || target < 0 || target >= tables.length) return;
+  const oldIds = tables.map(t => t.id);
+  [tables[idx], tables[target]] = [tables[target], tables[idx]];
+  const newIds = tables.map(t => t.id);
+  const ok = await setTables(state.currentProjectId, tables);
+  if(!ok) showToast('순서 저장에 실패했어요');
+  const project = await getProject(state.currentProjectId);
+  if(!project) return;
+  const mapping = buildOldNewMapping(oldIds, newIds);
+  const changed = renumberTokensInProject(project, mapping, tableTokenMatcher, tableTokenRender);
+  if(changed){
+    await setProject(project);
+    showToast('본문의 표 번호를 새 순서에 맞게 업데이트했어요');
+  }
+  renderWorkspace(project);
+}
+
+async function reorderTables(srcId, targetId){
+  const tables = state.tables || [];
+  const srcIdx = tables.findIndex(t => t.id === srcId);
+  const targetIdx = tables.findIndex(t => t.id === targetId);
+  if(srcIdx === -1 || targetIdx === -1 || srcIdx === targetIdx) return;
+  const oldIds = tables.map(t => t.id);
+  const [moved] = tables.splice(srcIdx, 1);
+  tables.splice(targetIdx, 0, moved);
+  const newIds = tables.map(t => t.id);
+  const ok = await setTables(state.currentProjectId, tables);
+  if(!ok) showToast('순서 저장에 실패했어요');
+  const project = await getProject(state.currentProjectId);
+  if(!project) return;
+  const mapping = buildOldNewMapping(oldIds, newIds);
+  const changed = renumberTokensInProject(project, mapping, tableTokenMatcher, tableTokenRender);
+  if(changed){
+    await setProject(project);
+    showToast('본문의 표 번호를 새 순서에 맞게 업데이트했어요');
+  }
+  renderWorkspace(project);
+}
+
+function scheduleTableSave(){
+  clearTimeout(state.tableSaveTimer);
+  state.tableSaveTimer = setTimeout(async () => {
+    await setTables(state.currentProjectId, state.tables || []);
+  }, 500);
+}
+
+// 본문에 실제로 삽입된(embed) 표 블록의 캡션을 Table Ledger 캡션과 동기화
+function syncEmbeddedTableCaption(project, tableId, tableNum, newCaption){
+  let changed = false;
+  const secs = getSections(project);
+  secs.forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw || !looksLikeHtml(raw)) return;
+    if(raw.indexOf(`data-table-id="${tableId}"`) === -1) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = raw;
+    const target = tmp.querySelector(`.inline-table[data-table-id="${tableId}"]`);
+    if(target){
+      const captionEl = target.querySelector('.inline-table-caption');
+      if(captionEl){
+        captionEl.innerHTML = `<b>Table ${tableNum}.</b> ${escapeHtml(newCaption || '(캡션 미작성)')}`;
+        project.content[sec.key] = tmp.innerHTML;
+        changed = true;
+      }
+    }
+  });
+  return changed;
 }
 
 /* ============== REF LEDGER (참고문헌 관리) ============== */
@@ -1617,6 +1980,7 @@ function refreshTocOnly(project){
   const figCount = (state.figures || []).length;
   const refCount = (state.references || []).length;
   const authorCount = (state.authors || []).length;
+  const tableCount = (state.tables || []).length;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
@@ -1626,6 +1990,11 @@ function refreshTocOnly(project){
       <span class="toc-num">▤</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
+    </button>`;
+  const tablesBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__tables__'?'active':''}" data-section-key="__tables__" onclick="selectTables()">
+      <span class="toc-num">▦</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
+      <span style="flex:1;text-align:left;">Table Ledger${state.tablesLoadFailed ? ' ⚠' : (tableCount ? ` (${tableCount})` : '')}</span>
     </button>`;
   const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
@@ -1641,7 +2010,7 @@ function refreshTocOnly(project){
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
     </button>`;
   }).join('');
-  toc.innerHTML = authorsBtn + figuresBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
+  toc.innerHTML = authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
 }
 
 async function selectSection(key){
@@ -1662,6 +2031,13 @@ async function selectSection(key){
 
 async function selectFigures(){
   state.currentSectionKey = '__figures__';
+  const project = await getProject(state.currentProjectId);
+  if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  renderWorkspace(project);
+}
+
+async function selectTables(){
+  state.currentSectionKey = '__tables__';
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -1756,6 +2132,7 @@ async function doDeleteProject(id){
   await deleteFiguresStorage(id);
   await deleteReferencesStorage(id);
   await deleteProjectAuthorsStorage(id);
+  await deleteTablesStorage(id);
   await setIndex(idx.filter(p=>p.id!==id));
   closeModal();
   showToast('프로젝트를 삭제했습니다');
@@ -1796,7 +2173,7 @@ function loadImageNaturalSize(dataUrl){
   });
 }
 
-async function buildDocxBlob(project, journalMeta, secs, figures, references, embeddedFigureIds, authors){
+async function buildDocxBlob(project, journalMeta, secs, figures, references, embeddedFigureIds, authors, tables, embeddedTableIds){
   const zip = new JSZip();
   const mediaFiles = [];
   const docRels = [];
@@ -1840,6 +2217,43 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
 </a:graphicData></a:graphic>
 </wp:inline>
 </w:drawing></w:r></w:p>`;
+  }
+
+  // 3선(three-line) 논문 표 스타일: 헤더 위/아래, 표 맨 아래에만 가로선.
+  // 세로선·행 사이 선은 전혀 그리지 않는다.
+  function tcBordersXml(top, bottom){
+    const topXml = top ? '<w:top w:val="single" w:sz="8" w:space="0" w:color="000000"/>' : '<w:top w:val="nil"/>';
+    const bottomXml = bottom ? '<w:bottom w:val="single" w:sz="8" w:space="0" w:color="000000"/>' : '<w:bottom w:val="nil"/>';
+    return `<w:tcBorders>${topXml}<w:left w:val="nil"/>${bottomXml}<w:right w:val="nil"/></w:tcBorders>`;
+  }
+  function tableCellXml(text, opts){
+    opts = Object.assign({ bold:false, topRule:false, bottomRule:false }, opts||{});
+    const tcPr = `<w:tcPr>${tcBordersXml(opts.topRule, opts.bottomRule)}<w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>`;
+    const rPr = `<w:rPr>${opts.bold?'<w:b/>':''}<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr>`;
+    const p = `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r>${rPr}<w:t xml:space="preserve">${xmlEscape(text==null?'':String(text))}</w:t></w:r></w:p>`;
+    return `<w:tc>${tcPr}${p}</w:tc>`;
+  }
+  function tableXml(t){
+    const columns = t.columns || [];
+    const rows = t.rows || [];
+    const colCount = Math.max(columns.length, ...rows.map(r=>r.length), 1);
+    const colWidth = Math.floor(9026 / colCount);
+    const gridCols = Array.from({length: colCount}).map(()=>`<w:gridCol w:w="${colWidth}"/>`).join('');
+    const headerRow = `<w:tr>${Array.from({length: colCount}).map((_,ci) =>
+      tableCellXml(columns[ci]||'', { bold:true, topRule:true, bottomRule:true })).join('')}</w:tr>`;
+    const bodyRows = rows.map((row, ri) => {
+      const isLast = ri === rows.length - 1;
+      return `<w:tr>${Array.from({length: colCount}).map((_,ci) =>
+        tableCellXml(row[ci]||'', { bottomRule:isLast })).join('')}</w:tr>`;
+    }).join('');
+    return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblLayout w:type="autofit"/><w:tblLook w:val="0000" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="0"/></w:tblPr><w:tblGrid>${gridCols}</w:tblGrid>${headerRow}${bodyRows}</w:tbl>`;
+  }
+  function extractTableDataFromDom(tableEl){
+    const columns = Array.from(tableEl.querySelectorAll('thead th')).map(th => th.textContent);
+    const rows = Array.from(tableEl.querySelectorAll('tbody tr')).map(tr =>
+      Array.from(tr.querySelectorAll('td')).map(td => td.textContent)
+    );
+    return { columns, rows };
   }
 
   function pText(text, opts){
@@ -1919,6 +2333,14 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
           out += pImage(rId, size, num);
           out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
         }
+      } else if(node.nodeType === 1 && node.classList && node.classList.contains('inline-table')){
+        const captionEl = node.querySelector('.inline-table-caption');
+        const tableEl = node.querySelector('table');
+        out += pText(captionEl ? captionEl.textContent : '', { size:20, align:'left', after:80 });
+        if(tableEl){
+          out += tableXml(extractTableDataFromDom(tableEl));
+          out += pText('', { after:280 });
+        }
       } else {
         const text = node.textContent || '';
         if(text.trim()) out += pText(text, { size:22 });
@@ -1948,6 +2370,17 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       }
     } else {
       body += await contentToParagraphs(project.content[s.key]);
+    }
+  }
+
+  const appendixTables = (tables||[]).map((t,i) => ({ ...t, num:i+1 })).filter(t => !embeddedTableIds.has(t.id));
+  if(appendixTables.length){
+    body += `<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`;
+    body += pHeading('Tables');
+    for(const t of appendixTables){
+      body += pText(`Table ${t.num}. ${t.caption || '(캡션 미작성)'}`, { size:20, align:'left', after:80 });
+      body += tableXml(t);
+      body += pText('', { after:280 });
     }
   }
 
@@ -2019,21 +2452,26 @@ async function exportProject(id){
   const { figures } = await getFigures(id);
   const { references } = await getReferences(id);
   const { authors } = await getProjectAuthors(id);
+  const { tables } = await getTables(id);
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
   const secs = getSections(project);
 
-  // 본문 어딘가에 실제로 삽입된(embed) 그림 id는 부록에 중복으로 넣지 않음
+  // 본문 어딘가에 실제로 삽입된(embed) 그림/표 id는 부록에 중복으로 넣지 않음
   const embeddedFigureIds = new Set();
+  const embeddedTableIds = new Set();
   secs.forEach(s => {
     const raw = project.content[s.key] || '';
     (raw.match(/data-fig-id="([^"]+)"/g) || []).forEach(m => {
       embeddedFigureIds.add(m.replace('data-fig-id="','').replace('"',''));
     });
+    (raw.match(/data-table-id="([^"]+)"/g) || []).forEach(m => {
+      embeddedTableIds.add(m.replace('data-table-id="','').replace('"',''));
+    });
   });
 
   showToast('Word 문서를 만드는 중…');
   try{
-    const blob = await buildDocxBlob(project, j, secs, figures || [], references || [], embeddedFigureIds, authors || []);
+    const blob = await buildDocxBlob(project, j, secs, figures || [], references || [], embeddedFigureIds, authors || [], tables || [], embeddedTableIds);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = (project.title || 'manuscript') + '.docx';
