@@ -640,6 +640,38 @@ function renderEditor(project, sec, isCustom){
     scheduleSave(project);
   });
 
+  // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
+  // "선택"해버려 커서가 생기지 않는다. 클릭 위치가 그림의 위쪽 절반이면
+  // 그림 앞, 아래쪽 절반이면 그림 뒤에 있는(없으면 새로 만드는) 빈 줄에
+  // 커서를 놓아 Word처럼 그림 사이 어디를 눌러도 이어서 타이핑할 수 있게
+  // 한다. 브라우저의 네이티브 선택 처리가 이 시점 이후에도 한 번 더
+  // 개입해 커서를 지우므로, 그 처리가 끝난 다음 틱에 다시 적용해야
+  // 유지된다. 또한 커서는 반드시 실제 텍스트 줄(요소와 요소 "사이"가
+  // 아니라) 안에 있어야 타이핑이 씹히지 않는다.
+  contentInput.addEventListener('mousedown', (e) => {
+    const figure = e.target.closest && e.target.closest('.inline-figure');
+    if(!figure || !contentInput.contains(figure)) return;
+    e.preventDefault();
+    const clickY = e.clientY;
+    setTimeout(() => {
+      const rect = figure.getBoundingClientRect();
+      const after = (clickY - rect.top) > rect.height / 2;
+      let target = after ? figure.nextElementSibling : figure.previousElementSibling;
+      if(!target || target.classList.contains('inline-figure')){
+        target = document.createElement('div');
+        target.innerHTML = '<br>';
+        if(after){ figure.after(target); } else { figure.before(target); }
+      }
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      range.collapse(true);
+      contentInput.focus();
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }, 0);
+  });
+
   if(isCustom){
     document.getElementById('sec-label-input').addEventListener('input', (e)=>{
       sec.label = e.target.value;
@@ -806,11 +838,11 @@ function renumberTokensInProject(project, mapping, buildMatcher, renderToken){
     let text = original;
     // 1단계: 바뀌는 번호들을 임시 표식으로 치환 (자리 겹침 방지)
     mapping.forEach(({oldNum}, idx) => {
-      text = text.replace(buildMatcher(oldNum), ` TKN${idx} `);
+      text = text.replace(buildMatcher(oldNum), ` TKN${idx} `);
     });
     // 2단계: 임시 표식을 새 번호로 치환
     mapping.forEach(({newNum}, idx) => {
-      text = text.split(` TKN${idx} `).join(renderToken(newNum));
+      text = text.split(` TKN${idx} `).join(renderToken(newNum));
     });
     if(text !== original){
       project.content[sec.key] = text;
