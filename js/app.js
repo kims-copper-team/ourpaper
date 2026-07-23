@@ -98,10 +98,11 @@ let state = {
   references:[], refSaveTimer:null, referencesLoadFailed:false,
   authors:[], authorSaveTimer:null, authorsLoadFailed:false,
   authorDirectory:[], authorDirectoryLoaded:false,
-  activeTextareaId:null // 인용/그림 삽입 시 커서를 넣을 대상 textarea id
+  tables:[], tableSaveTimer:null, tablesLoadFailed:false,
+  activeTextareaId:null // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
 };
 
-const LEDGER_KEYS = ['__authors__', '__figures__', '__refs__'];
+const LEDGER_KEYS = ['__authors__', '__figures__', '__refs__', '__tables__'];
 function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
 
 /* ============== STORAGE HELPERS ============== */
@@ -555,6 +556,12 @@ function renderWorkspace(project){
         </div>
       </div>
       <div class="ws-actions">
+        <select class="btn secondary small" id="font-size-select" title="본문 글자 크기" style="padding:6px 10px;">
+          <option value="13">가 작게</option>
+          <option value="15">가 보통</option>
+          <option value="17">가 크게</option>
+          <option value="19">가 아주 크게</option>
+        </select>
         <button class="btn secondary small" onclick="exportProject('${project.id}')">Word로 내보내기</button>
         <button class="btn danger small" onclick="confirmDeleteProject('${project.id}')">삭제</button>
       </div>
@@ -574,6 +581,17 @@ function renderWorkspace(project){
 
   document.getElementById('ws-title').addEventListener('input', (e)=>{
     project.title = e.target.value;
+    scheduleSave(project);
+  });
+
+  const fontSizeSelect = document.getElementById('font-size-select');
+  const editorFontSize = project.editorFontSize || 15;
+  fontSizeSelect.value = String(editorFontSize);
+  document.getElementById('editor-pane').style.setProperty('--editor-font-size', editorFontSize + 'px');
+  fontSizeSelect.addEventListener('change', (e) => {
+    const size = Number(e.target.value) || 15;
+    project.editorFontSize = size;
+    document.getElementById('editor-pane').style.setProperty('--editor-font-size', size + 'px');
     scheduleSave(project);
   });
 

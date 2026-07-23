@@ -217,9 +217,8 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 }
 .editor-area{
   width:100%; min-height:360px; border:none; background:transparent;
-  font-size:15px; line-height:1.85; color:var(--ink); font-family:'Times New Roman', '맑은 고딕', serif;
-  background-image:linear-gradient(rgba(30,34,48,0.06) 1px, transparent 1px);
-  background-size:100% 32.3px; padding-top:2px; white-space:pre-wrap; word-wrap:break-word;
+  font-size:var(--editor-font-size, 15px); line-height:1.85; color:var(--ink); font-family:'Times New Roman', '맑은 고딕', serif;
+  white-space:pre-wrap; word-wrap:break-word;
 }
 .editor-area:focus{ outline:none; }
 .editor-area.is-empty{ position:relative; }
