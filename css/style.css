@@ -50,12 +50,6 @@ button{ font-family:inherit; cursor:pointer; }
   color:var(--topbar-ink);
 }
 .brand{ display:flex; align-items:center; gap:10px; }
-.brand-mark{
-  width:30px; height:30px; border:1.5px solid var(--brand);
-  display:flex; align-items:center; justify-content:center;
-  font-family:'Times New Roman', '맑은 고딕', serif; font-style:italic; font-weight:600; font-size:16px;
-  border-radius:50%; color:var(--brand);
-}
 .brand-name{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:19px; font-weight:600; letter-spacing:0.2px; color:var(--topbar-ink); }
 .brand-sub{ font-size:11px; color:rgba(237,238,240,0.55); font-family:'Courier New', '맑은 고딕', monospace; letter-spacing:0.5px; text-transform:uppercase; }
 .topbar-right{ display:flex; align-items:center; gap:16px; }
@@ -79,7 +73,6 @@ nav.tabs button.active{ background:var(--brand); color:#0F1115; }
 }
 .auth-card .brand{ justify-content:center; margin-bottom:24px; }
 .auth-card .brand-name{ color:var(--topbar-ink); }
-.auth-card .brand-mark{ border-color:var(--brand); color:var(--brand); }
 .auth-card h1{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:20px; font-weight:600; text-align:center; margin:0 0 22px; color:var(--topbar-ink); }
 .auth-card .field{ margin-bottom:14px; }
 .auth-card .field label{ display:block; font-size:12px; font-weight:600; color:rgba(237,238,240,0.65); margin-bottom:5px; }

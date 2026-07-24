@@ -3196,7 +3196,6 @@ function renderAuthScreen(mode){
     <div class="auth-wrap">
       <div class="auth-card">
         <div class="brand">
-          <div class="brand-mark">P</div>
           <div><div class="brand-name">논문 투고 워크스페이스</div></div>
         </div>
         <h1>${isSignup ? '계정 만들기' : '로그인'}</h1>
