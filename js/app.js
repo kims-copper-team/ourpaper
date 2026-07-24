@@ -3164,7 +3164,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   function pText(text, opts){
     opts = Object.assign({ bold:false, italic:false, size:22, align:'left', after:160, lineSpacing:null }, opts||{});
     if(text == null || text === '') text = ' ';
-    const rPr = `<w:rPr>${opts.bold?'<w:b/>':''}${opts.italic?'<w:i/>':''}<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/></w:rPr>`;
+    const rPr = `<w:rPr>${opts.bold?'<w:b/>':''}${opts.italic?'<w:i/>':''}<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/><w:lang w:eastAsia="ko-KR"/></w:rPr>`;
     const runs = String(text).split('\n').map((line,idx) => (idx>0?'<w:br/>':'') + `<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`).join('');
     const lineAttr = opts.lineSpacing ? ` w:line="${opts.lineSpacing}" w:lineRule="auto"` : '';
     return `<w:p><w:pPr><w:spacing w:after="${opts.after}"${lineAttr}/><w:jc w:val="${opts.align}"/></w:pPr><w:r>${rPr}${runs}</w:r></w:p>`;
@@ -3226,7 +3226,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   async function contentToParagraphs(raw){
     if(!raw || !extractPlainText(raw).trim()) return pText('(작성되지 않음)', { italic:true, size:20 });
     if(!looksLikeHtml(raw)){
-      return raw.split(/\n{2,}/).map(par => pText(par, { size:22, align:'left', lineSpacing:480 })).join('');
+      return raw.split(/\n{2,}/).map(par => pText(par, { size:22, align:'both', lineSpacing:480 })).join('');
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
@@ -3250,7 +3250,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         }
       } else {
         const text = node.textContent || '';
-        if(text.trim()) out += pText(text, { size:22, align:'left', lineSpacing:480 });
+        if(text.trim()) out += pText(text, { size:22, align:'both', lineSpacing:480 });
       }
     }
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
