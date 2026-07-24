@@ -3379,10 +3379,16 @@ async function exportProject(id){
   }
   const project = await getProject(id);
   if(!project){ showToast('일시적인 오류로 원고를 불러오지 못했어요. 다시 시도해주세요'); return; }
-  const { figures } = await getFigures(id);
-  const { references } = await getReferences(id);
-  const { authors } = await getProjectAuthors(id);
-  const { tables } = await getTables(id);
+  const { figures, failed: figuresFailed } = await getFigures(id);
+  const { references, failed: referencesFailed } = await getReferences(id);
+  const { authors, failed: authorsFailed } = await getProjectAuthors(id);
+  const { tables, failed: tablesFailed } = await getTables(id);
+  // 여기서 실패를 무시하고 빈 배열로 넘어가면 그림/표/저자/참고문헌이 통째로
+  // 빠진 문서가 아무 경고 없이 만들어진다 — 반드시 알리고 중단한다.
+  if(figuresFailed || referencesFailed || authorsFailed || tablesFailed){
+    showToast('그림/표/저자/참고문헌을 불러오는 중 일시적인 오류가 발생했어요. 다시 시도해주세요');
+    return;
+  }
   const j = JOURNALS[project.journalId] || JOURNALS.custom;
   const secs = getSections(project);
 
