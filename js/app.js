@@ -172,14 +172,24 @@ async function getIndex(){
 async function insertProject(p){
   const session = await getSession();
   if(!session) return { project:null, error:new Error('로그인이 필요합니다') };
+  // id를 미리 만들어서 넣고 select()로 재조회하지 않는다: INSERT ... RETURNING은 반환되는
+  // 행에 SELECT RLS 정책(is_project_member)도 함께 적용하는데, 그 정책이 "같은 문장 안에서
+  // 막 삽입된 행"을 스스로 다시 조회해 확인하려다 보니 통과하지 못하는 Postgres RLS 엣지
+  // 케이스가 있다. 별도 조회 없이 클라이언트가 이미 아는 값으로 결과를 직접 구성한다.
+  const id = crypto.randomUUID();
   const row = {
-    title: p.title, journal_id: p.journalId,
+    id, title: p.title, journal_id: p.journalId,
     custom_sections: p.journalId === 'custom' ? (p.customSections || []) : [],
     owner_id: session.user.id
   };
-  const { data, error } = await window.sb.from('projects').insert(row).select().single();
+  const { error } = await window.sb.from('projects').insert(row);
   if(error){ console.error('프로젝트 생성 실패:', error); return { project:null, error }; }
-  return { project: mapProjectRow(data), error:null };
+  const now = Date.now();
+  return { project: mapProjectRow({
+    id, title: row.title, journal_id: row.journal_id, custom_sections: row.custom_sections,
+    content: {}, editor_font_size: null, owner_id: row.owner_id,
+    created_at: new Date(now).toISOString(), updated_at: new Date(now).toISOString()
+  }), error:null };
 }
 
 function mapProjectRow(data){
