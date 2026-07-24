@@ -69,11 +69,11 @@ nav.tabs button.active{ background:var(--brand); color:#0F1115; }
 .auth-card{
   width:100%; max-width:380px; background:#1A1C1F; border:1px solid var(--topbar-line); border-radius:var(--radius);
   box-shadow:0 20px 50px -20px rgba(0,0,0,0.6); padding:34px 32px;
-  font-family:'Times New Roman', '맑은 고딕', serif; color:var(--topbar-ink);
+  font-family:'Times New Roman', '맑은 고딕', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; color:var(--topbar-ink);
 }
 .auth-card .brand{ justify-content:center; margin-bottom:24px; }
 .auth-card .brand-name{ color:var(--topbar-ink); }
-.auth-card h1{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:20px; font-weight:600; text-align:center; margin:0 0 22px; color:var(--topbar-ink); }
+.auth-card h1{ font-family:'Times New Roman', '맑은 고딕', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; font-size:20px; font-weight:600; text-align:center; margin:0 0 22px; color:var(--topbar-ink); }
 .auth-card .field{ margin-bottom:14px; }
 .auth-card .field label{ display:block; font-size:12px; font-weight:600; color:rgba(237,238,240,0.65); margin-bottom:5px; }
 .auth-card .field input{
