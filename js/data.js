@@ -15,7 +15,8 @@
   });
 
   window.authSignUp = async function(email, password){
-    const { data, error } = await window.sb.auth.signUp({ email, password });
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { data, error } = await window.sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
     return { user: data && data.user, session: data && data.session, error };
   };
 
