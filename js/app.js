@@ -1162,7 +1162,7 @@ function buildFigureInsertPanel(){
   } else {
     itemsHtml = figures.map((f,i) => `
       <button class="insert-item" onclick="pickFigureInsert(${i})">
-        <span class="insert-thumb"><img src="${f.dataUrl}" alt=""></span>
+        <span class="insert-thumb"><img src="${figureSrc(f)}" alt=""></span>
         <span class="insert-text">
           <div class="insert-primary">Fig. ${i+1}</div>
           <div class="insert-secondary">${escapeHtml(f.caption || f.fileName)}</div>
@@ -1263,7 +1263,7 @@ function pickFigureInsert(index){
   const mode = state.figInsertMode || 'embed';
   if(mode === 'embed'){
     const captionText = escapeHtml(f.caption || '(캡션 미작성)');
-    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${f.dataUrl}" alt=""><div class="inline-figure-caption"><b>Fig. ${index+1}.</b> ${captionText}</div></div><div><br></div>`;
+    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${figureSrc(f)}" alt=""><div class="inline-figure-caption"><b>Fig. ${index+1}.</b> ${captionText}</div></div><div><br></div>`;
     insertContentAtCursor(html);
   } else {
     insertContentAtCursor(escapeHtml(`Fig. ${index+1}`));
@@ -1406,7 +1406,11 @@ function syncEmbeddedFigureCaption(project, figureId, figNum, newCaption){
 }
 
 
-const FIG_MAX_BYTES = 1_500_000; // 파일 1개당 권장 용량 (base64 인코딩 후 저장소 5MB 제한 고려)
+const FIG_MAX_BYTES = 25_000_000; // Supabase Storage에 올라가는 원본 파일 크기 상한 (안전장치일 뿐, 화질 제한이 아님)
+
+// 그림은 Supabase Storage에 올리고 URL만 저장한다(신규). 예전에 base64로
+// 저장했던 그림(dataUrl)도 계속 보이도록 둘 다 지원한다.
+function figureSrc(f){ return f.url || f.dataUrl; }
 
 function renderFigureManager(project){
   const pane = document.getElementById('editor-pane');
@@ -1428,7 +1432,7 @@ function renderFigureManager(project){
   const cards = figures.map((f, i) => `
     <div class="fig-card" draggable="true" data-fig-id="${f.id}">
       <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
-      <div class="fig-thumb-wrap"><img src="${f.dataUrl}" alt="${escapeHtml(f.fileName)}" /></div>
+      <div class="fig-thumb-wrap"><img src="${figureSrc(f)}" alt="${escapeHtml(f.fileName)}" /></div>
       <div class="fig-body">
         <div class="fig-head-row">
           <span class="fig-label">Fig. ${i+1}</span>
@@ -1454,7 +1458,7 @@ function renderFigureManager(project){
     <label class="fig-upload-zone" id="fig-drop-zone" for="fig-file-input">
       <div class="fig-upload-icon">＋</div>
       클릭하거나 이미지를 끌어다 놓아 그림을 추가하세요<br>
-      <span style="font-size:11px;color:var(--ink-faint);">PNG · JPG 등, 파일당 약 1.5MB 이하 권장</span>
+      <span style="font-size:11px;color:var(--ink-faint);">PNG · JPG 등, 고화질 원본 그대로 업로드 가능 (파일당 25MB 이하)</span>
       <input type="file" id="fig-file-input" accept="image/*" multiple style="display:none;" />
     </label>
 
@@ -1526,29 +1530,32 @@ function handleFigureFiles(fileList){
   if(files.length === 0){ showToast('이미지 파일만 업로드할 수 있어요'); return; }
   const oversized = files.filter(f => f.size > FIG_MAX_BYTES);
   const valid = files.filter(f => f.size <= FIG_MAX_BYTES);
-  if(oversized.length) showToast(`${oversized.length}개 파일이 너무 커서 제외됐어요 (1.5MB 이하 권장)`);
-  valid.forEach(readAndAddFigure);
+  if(oversized.length) showToast(`${oversized.length}개 파일이 너무 커서(25MB 초과) 제외됐어요`);
+  valid.forEach(uploadAndAddFigure);
 }
 
-function readAndAddFigure(file){
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    state.figures = state.figures || [];
-    state.figures.push({
-      id: 'fig_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-      fileName: file.name,
-      dataUrl: e.target.result,
-      caption: '',
-      note: '',
-      addedAt: Date.now()
-    });
-    const ok = await setFigures(state.currentProjectId, state.figures);
-    if(!ok) showToast('그림 저장에 실패했어요. 다시 시도해주세요');
-    const project = await getProject(state.currentProjectId);
-    if(project) renderWorkspace(project);
-  };
-  reader.onerror = () => showToast(`"${file.name}" 파일을 읽는 중 오류가 발생했어요`);
-  reader.readAsDataURL(file);
+async function uploadAndAddFigure(file){
+  const extMatch = /\.([a-zA-Z0-9]+)$/.exec(file.name || '');
+  const ext = (extMatch ? extMatch[1] : 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+  const path = `${state.currentProjectId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const { error: uploadError } = await window.sb.storage.from('figures').upload(path, file, { contentType: file.type || undefined });
+  if(uploadError){ showToast(`"${file.name}" 업로드에 실패했어요: ${uploadError.message || '다시 시도해주세요'}`); return; }
+  const { data: pub } = window.sb.storage.from('figures').getPublicUrl(path);
+
+  state.figures = state.figures || [];
+  state.figures.push({
+    id: 'fig_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    fileName: file.name,
+    storagePath: path,
+    url: pub.publicUrl,
+    caption: '',
+    note: '',
+    addedAt: Date.now()
+  });
+  const ok = await setFigures(state.currentProjectId, state.figures);
+  if(!ok) showToast('그림 저장에 실패했어요. 다시 시도해주세요');
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
 }
 
 async function moveFigure(id, dir){
@@ -2771,9 +2778,13 @@ function scheduleAuthorSave(){
 }
 
 async function removeFigure(id){
+  const removed = (state.figures || []).find(f => f.id === id);
   state.figures = (state.figures || []).filter(f => f.id !== id);
   const ok = await setFigures(state.currentProjectId, state.figures);
   if(!ok) showToast('삭제 내용을 저장하지 못했어요');
+  if(removed && removed.storagePath){
+    window.sb.storage.from('figures').remove([removed.storagePath]).catch(() => {}); // 실패해도 목록 삭제 자체는 이미 완료된 것으로 취급
+  }
   const project = await getProject(state.currentProjectId);
   if(project) renderWorkspace(project);
 }
@@ -2985,6 +2996,20 @@ function imageExtFromDataUrl(dataUrl){
   if(!['png','jpeg','gif','bmp'].includes(ext)) ext = 'png';
   return ext;
 }
+// Storage에 올라간 그림은 data: URL이 아니라 실제 URL이라 확장자를 경로에서 뽑는다.
+function imageExtFromSrc(src){
+  if(src && src.startsWith('data:')) return imageExtFromDataUrl(src);
+  const m = /\.([a-zA-Z0-9]+)(?:\?.*)?$/.exec(src || '');
+  let ext = (m && m[1] || 'png').toLowerCase();
+  if(ext === 'jpg') ext = 'jpeg';
+  if(!['png','jpeg','gif','bmp'].includes(ext)) ext = 'png';
+  return ext;
+}
+async function urlToBytes(url){
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error('이미지를 불러오지 못했어요 (' + resp.status + ')');
+  return new Uint8Array(await resp.arrayBuffer());
+}
 function loadImageNaturalSize(dataUrl){
   return new Promise(resolve => {
     const img = new Image();
@@ -3010,15 +3035,15 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     return { cx:w, cy:h };
   }
 
-  async function registerImage(dataUrl){
-    const ext = imageExtFromDataUrl(dataUrl);
-    const bytes = dataUrlToBytes(dataUrl);
+  async function registerImage(src){
+    const ext = imageExtFromSrc(src);
+    const bytes = src.startsWith('data:') ? dataUrlToBytes(src) : await urlToBytes(src);
     const num = picCounter++;
     const fname = `image${num}.${ext}`;
     mediaFiles.push({ name: fname, bytes });
     const rId = 'rId' + (rIdCounter++);
     docRels.push({ id: rId, target: `media/${fname}` });
-    const size = emuSize(await loadImageNaturalSize(dataUrl));
+    const size = emuSize(await loadImageNaturalSize(src));
     return { rId, size, num };
   }
 
@@ -3214,7 +3239,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     body += `<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`;
     body += pHeading('Figures');
     for(const f of appendixFigures){
-      const { rId, size, num } = await registerImage(f.dataUrl);
+      const { rId, size, num } = await registerImage(figureSrc(f));
       body += pImage(rId, size, num);
       body += pText(`Fig. ${f.num}. ${f.caption || '(캡션 미작성)'}`, { size:18, align:'center', after:280 });
     }

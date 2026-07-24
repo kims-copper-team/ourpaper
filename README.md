@@ -18,6 +18,7 @@ python3 -m http.server 8000
 1. `supabase/schema.sql` — (레거시) 초기 단일 사용자 KV 테이블. 지금은 앱이 쓰지 않지만 참고용으로 둡니다.
 2. `supabase/002_auth_and_membership.sql` — 계정(`profiles`), 프로젝트(`projects`), 프로젝트 멤버십(`project_members`) 및 RLS 정책. **Authentication → Providers → Email**이 켜져 있어야 합니다(신규 프로젝트는 기본 활성화).
 3. `supabase/003_highlights.sql` — 하이라이트/코멘트 테이블 및 RLS 정책.
+4. `supabase/004_figures_storage.sql` — 그림 업로드용 Storage 버킷(`figures`) 및 접근 정책. 이후 그림은 base64로 프로젝트에 통째로 저장하지 않고 Storage에 올린 뒤 URL만 저장해서, 고화질 원본도 문제없이 다룰 수 있습니다.
 
 `js/supabase-config.js`에 프로젝트 URL과 anon(publishable) key가 이미 채워져 있습니다. 다른 프로젝트로 바꾸려면 이 파일만 수정하면 됩니다. anon key는 클라이언트에 노출되어도 안전하도록 설계된 키이며, 실제 접근 제어는 Row Level Security(계정별·프로젝트 멤버십 기준)로 이루어집니다.
 
@@ -48,3 +49,4 @@ python3 -m http.server 8000
 - `js/app.js` — 대시보드, 저널별 워크스페이스, Fig/Ref/Author/Table Ledger, 팀원·코멘트 관리, 실시간 협업, `.docx` 내보내기를 포함한 앱 로직
 - `supabase/002_auth_and_membership.sql` — 계정/프로젝트/멤버십 스키마 및 RLS
 - `supabase/003_highlights.sql` — 하이라이트/코멘트 스키마 및 RLS
+- `supabase/004_figures_storage.sql` — 그림 Storage 버킷 및 접근 정책
