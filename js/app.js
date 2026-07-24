@@ -290,6 +290,26 @@ function getSections(project){
 function isReferencesSection(sec){
   return sec.key === 'references' || /reference|참고\s*문헌/i.test(sec.label || '');
 }
+function isKeywordsSection(sec){
+  return sec.key === 'keywords' || /keyword|키워드/i.test(sec.label || '');
+}
+// 화면에서는 줄바꿈·쉼표 등 어떻게 입력하든 상관없지만, 내보내기에서는
+// 논문 관례대로 "키워드1; 키워드2; 키워드3" 한 줄로 정리한다.
+function formatKeywordsForExport(rawContent){
+  if(!rawContent) return '';
+  let plain;
+  if(looksLikeHtml(rawContent)){
+    // textContent는 <div> 줄 경계를 무시하고 그대로 이어붙이므로("A"+"B"가
+    // "AB"가 됨), 최상위 자식 노드(줄)마다 직접 개행을 넣어준다.
+    const tmp = document.createElement('div');
+    tmp.innerHTML = rawContent;
+    plain = Array.from(tmp.childNodes).map(node => node.textContent || '').join('\n');
+  } else {
+    plain = rawContent;
+  }
+  const tokens = plain.split(/[\n,;、，；]+/).map(s => s.trim()).filter(Boolean);
+  return tokens.join('; ');
+}
 // Word 내보내기에서 번호(1., 2., ...)를 붙이지 않는 섹션들 — Abstract,
 // Keywords, Highlights, Graphical Abstract, Declarations, References는
 // 관례상 번호 없는 헤딩으로 쓰인다. Introduction/Experimental/Results/
@@ -808,7 +828,7 @@ function renderManuscriptCanvas(project, isCustom){
       </div>
       ${isCustom ? `<input type="text" id="sec-guidance-input-${sec.key}" placeholder="이 섹션에 무엇을 써야 하는지 메모 (선택)" value="${escapeHtml(sec.guidance||'')}" style="width:100%;border:none;background:transparent;font-family:'Times New Roman', '맑은 고딕', serif;font-style:italic;font-size:13px;color:var(--ink-soft);margin:8px 0 16px;padding:0;" />`
         : (sec.guidance ? `<div class="editor-guidance">${escapeHtml(sec.guidance)}</div>` : '')}
-      <div class="editor-area ${isEmpty ? 'is-empty' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="여기에 ${escapeHtml(sec.label)} 내용을 작성하세요…">${plainTextToEditableHtml(rawContent)}</div>
+      <div class="editor-area ${isEmpty ? 'is-empty' : ''} ${isKeywordsSection(sec) ? 'compact' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="여기에 ${escapeHtml(sec.label)} 내용을 작성하세요…">${plainTextToEditableHtml(rawContent)}</div>
       <div class="editor-foot">
         <span class="word-count ${overLimit?'over':''}" id="wc-display-${sec.key}">${wc}단어${sec.limit?(' / '+sec.limit):''}</span>
         <span class="save-indicator" id="editor-save-indicator"></span>
@@ -3071,6 +3091,9 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       } else {
         body += pText('(등록된 참고문헌 없음)', { italic:true, size:20 });
       }
+    } else if(isKeywordsSection(s)){
+      const formatted = formatKeywordsForExport(project.content[s.key]);
+      body += formatted ? pText(formatted, { size:22 }) : pText('(작성되지 않음)', { italic:true, size:20 });
     } else {
       body += await contentToParagraphs(project.content[s.key]);
     }
