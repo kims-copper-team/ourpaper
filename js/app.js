@@ -3165,7 +3165,11 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     opts = Object.assign({ bold:false, italic:false, size:22, align:'left', after:160, lineSpacing:null }, opts||{});
     if(text == null || text === '') text = ' ';
     const rPr = `<w:rPr>${opts.bold?'<w:b/>':''}${opts.italic?'<w:i/>':''}<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/><w:lang w:eastAsia="ko-KR"/></w:rPr>`;
-    const runs = String(text).split('\n').map((line,idx) => (idx>0?'<w:br/>':'') + `<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`).join('');
+    // 끝에 빈 줄이 남으면 <w:br/> 뒤에 내용 없는 run이 생겨서, Word가 "이 줄 뒤에
+    // 내용이 더 있다"고 오판해 실제 마지막 줄까지 양쪽 맞춤으로 늘려버릴 수 있다.
+    const lines = String(text).split('\n');
+    while(lines.length > 1 && lines[lines.length-1] === '') lines.pop();
+    const runs = lines.map((line,idx) => (idx>0?'<w:br/>':'') + `<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`).join('');
     const lineAttr = opts.lineSpacing ? ` w:line="${opts.lineSpacing}" w:lineRule="auto"` : '';
     return `<w:p><w:pPr><w:spacing w:after="${opts.after}"${lineAttr}/><w:jc w:val="${opts.align}"/></w:pPr><w:r>${rPr}${runs}</w:r></w:p>`;
   }
