@@ -2449,6 +2449,15 @@ function scheduleRefSave(){
 /* ============== References 섹션 (Ref Ledger 기반 자동 생성) ============== */
 /* ============== AUTHOR LEDGER (저자 관리) ============== */
 let authorFormOpen = false;
+let newAuthorAffiliations = [];
+
+// 소속이 여러 개인 저자를 지원한다. 예전 데이터는 단일 문자열 필드(affiliation)만
+// 가지고 있을 수 있어 배열(affiliations)이 없으면 그걸로 대체한다.
+function authorAffiliations(a){
+  if(a.affiliations && a.affiliations.length) return a.affiliations;
+  if(a.affiliation) return [a.affiliation];
+  return [];
+}
 
 function renderAuthorManager(project){
   const pane = document.getElementById('editor-pane');
@@ -2472,12 +2481,16 @@ function renderAuthorManager(project){
     <div class="author-directory-item">
       <div class="adi-info">
         <div class="adi-name">${escapeHtml(d.name)}</div>
-        <div class="adi-affil">${escapeHtml(d.affiliation || '')}</div>
+        <div class="adi-affil">${escapeHtml(authorAffiliations(d).join('; '))}</div>
       </div>
       <button class="btn secondary small" onclick="addAuthorFromDirectory('${d.id}')">＋ 추가</button>
       <button class="icon-btn" title="주소록에서 삭제" onclick="removeFromDirectory('${d.id}')">✕</button>
     </div>
   `).join('') : `<div class="author-directory-empty">저장된 저자가 없어요. 아래에서 새로 추가하면 주소록에도 저장할 수 있어요.</div>`;
+
+  const newAuthorAffilChips = newAuthorAffiliations.length
+    ? newAuthorAffiliations.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeNewAuthorAffiliation(${i})">✕</button></span>`).join('')
+    : `<span class="affil-chip-empty">소속이 여러 개면 하나씩 추가하세요</span>`;
 
   const addForm = authorFormOpen ? `
     <div class="author-add-form" id="author-add-form">
@@ -2485,7 +2498,11 @@ function renderAuthorManager(project){
       <div class="author-directory-list">${directoryHtml}</div>
       <div style="font-size:12px;font-weight:600;color:var(--ink-soft);margin:14px 0 8px;border-top:1px dashed var(--line);padding-top:12px;">새 저자 직접 입력</div>
       <input type="text" id="author-new-name" placeholder="이름 (예: Jiin Hwang)" />
-      <input type="text" id="author-new-affil" placeholder="소속 (예: Department of Materials Science, XYZ University)" />
+      <div class="affil-chip-list" id="new-author-affil-chips">${newAuthorAffilChips}</div>
+      <div class="affil-add-row" style="margin-bottom:8px;">
+        <input type="text" id="author-new-affil-input" placeholder="소속 입력 후 추가 (예: Department of Materials Science, XYZ University)" />
+        <button type="button" class="btn secondary small" onclick="addNewAuthorAffiliation()">＋ 소속 추가</button>
+      </div>
       <input type="text" id="author-new-email" placeholder="이메일 (선택)" />
       <input type="text" id="author-new-orcid" placeholder="ORCID (선택)" />
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);margin-bottom:10px;">
@@ -2504,8 +2521,15 @@ function renderAuthorManager(project){
       <div class="ref-num-badge">${i+1}</div>
       <div class="author-body">
         <div class="author-row">
-          <input type="text" class="author-name-input" data-author-id="${a.id}" data-field="name" value="${escapeHtml(a.name||'')}" placeholder="이름" />
-          <input type="text" class="author-affil-input" data-author-id="${a.id}" data-field="affiliation" value="${escapeHtml(a.affiliation||'')}" placeholder="소속" />
+          <input type="text" class="author-name-input" data-author-id="${a.id}" data-field="name" value="${escapeHtml(a.name||'')}" placeholder="이름" style="flex:1;" />
+        </div>
+        <div class="author-affil-block">
+          <div class="affil-chip-list" id="affil-chips-${a.id}">${
+            authorAffiliations(a).length
+              ? authorAffiliations(a).map((aff, ai) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeAuthorAffiliation('${a.id}', ${ai})">✕</button></span>`).join('')
+              : `<span class="affil-chip-empty">소속 없음</span>`
+          }</div>
+          <input type="text" class="affil-add-input" data-author-id="${a.id}" placeholder="소속이 여러 개면 하나씩 입력 후 Enter" />
         </div>
         <div class="author-row author-contact-row">
           <input type="text" data-author-id="${a.id}" data-field="email" value="${escapeHtml(a.email||'')}" placeholder="이메일 (선택)" />
@@ -2534,6 +2558,10 @@ function renderAuthorManager(project){
   if(authorFormOpen){
     const nameInput = document.getElementById('author-new-name');
     if(nameInput) nameInput.focus();
+    const newAffilInput = document.getElementById('author-new-affil-input');
+    if(newAffilInput) newAffilInput.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){ e.preventDefault(); addNewAuthorAffiliation(); }
+    });
   }
 
   pane.querySelectorAll('.author-body input[data-field]').forEach(el => {
@@ -2541,6 +2569,11 @@ function renderAuthorManager(project){
       const author = (state.authors || []).find(a => a.id === e.target.dataset.authorId);
       if(author) author[e.target.dataset.field] = e.target.value;
       scheduleAuthorSave();
+    });
+  });
+  pane.querySelectorAll('.affil-add-input').forEach(el => {
+    el.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){ e.preventDefault(); addAuthorAffiliation(el.dataset.authorId, el); }
     });
   });
   pane.querySelectorAll('.author-flags input[type=checkbox]').forEach(el => {
@@ -2577,11 +2610,62 @@ function renderAuthorManager(project){
 
 function showAddAuthorForm(){
   authorFormOpen = true;
+  newAuthorAffiliations = [];
   getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
 }
 function cancelAddAuthor(){
   authorFormOpen = false;
+  newAuthorAffiliations = [];
   getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+
+function addNewAuthorAffiliation(){
+  const input = document.getElementById('author-new-affil-input');
+  const val = input.value.trim();
+  if(!val) return;
+  newAuthorAffiliations.push(val);
+  input.value = '';
+  const el = document.getElementById('new-author-affil-chips');
+  if(el) el.innerHTML = newAuthorAffiliations.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeNewAuthorAffiliation(${i})">✕</button></span>`).join('');
+  input.focus();
+}
+function removeNewAuthorAffiliation(idx){
+  newAuthorAffiliations.splice(idx, 1);
+  const el = document.getElementById('new-author-affil-chips');
+  if(el) el.innerHTML = newAuthorAffiliations.length
+    ? newAuthorAffiliations.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeNewAuthorAffiliation(${i})">✕</button></span>`).join('')
+    : `<span class="affil-chip-empty">소속이 여러 개면 하나씩 추가하세요</span>`;
+}
+
+function renderAuthorAffilChips(authorId){
+  const author = (state.authors || []).find(a => a.id === authorId);
+  const el = document.getElementById('affil-chips-' + authorId);
+  if(!author || !el) return;
+  const list = authorAffiliations(author);
+  el.innerHTML = list.length
+    ? list.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeAuthorAffiliation('${authorId}', ${i})">✕</button></span>`).join('')
+    : `<span class="affil-chip-empty">소속 없음</span>`;
+}
+function addAuthorAffiliation(authorId, inputEl){
+  const val = inputEl.value.trim();
+  if(!val) return;
+  const author = (state.authors || []).find(a => a.id === authorId);
+  if(!author) return;
+  author.affiliations = authorAffiliations(author);
+  author.affiliations.push(val);
+  delete author.affiliation;
+  inputEl.value = '';
+  renderAuthorAffilChips(authorId);
+  scheduleAuthorSave();
+}
+function removeAuthorAffiliation(authorId, idx){
+  const author = (state.authors || []).find(a => a.id === authorId);
+  if(!author) return;
+  author.affiliations = authorAffiliations(author);
+  author.affiliations.splice(idx, 1);
+  delete author.affiliation;
+  renderAuthorAffilChips(authorId);
+  scheduleAuthorSave();
 }
 
 async function addAuthorFromDirectory(directoryId){
@@ -2591,7 +2675,7 @@ async function addAuthorFromDirectory(directoryId){
   state.authors.push({
     id: 'auth_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
     directoryId: entry.id,
-    name: entry.name, affiliation: entry.affiliation, email: entry.email, orcid: entry.orcid,
+    name: entry.name, affiliations: authorAffiliations(entry).slice(), email: entry.email, orcid: entry.orcid,
     isCoFirst:false, isCorresponding:false, addedAt: Date.now()
   });
   const ok = await setProjectAuthors(state.currentProjectId, state.authors);
@@ -2614,7 +2698,10 @@ async function removeFromDirectory(directoryId){
 
 async function submitNewAuthor(){
   const name = document.getElementById('author-new-name').value.trim();
-  const affiliation = document.getElementById('author-new-affil').value.trim();
+  const affilInput = document.getElementById('author-new-affil-input');
+  const pendingAffil = affilInput ? affilInput.value.trim() : '';
+  if(pendingAffil) newAuthorAffiliations.push(pendingAffil); // 입력만 하고 추가 버튼을 안 눌렀어도 놓치지 않기
+  const affiliations = newAuthorAffiliations.slice();
   const email = document.getElementById('author-new-email').value.trim();
   const orcid = document.getElementById('author-new-orcid').value.trim();
   const saveToDirectory = document.getElementById('author-new-save-directory').checked;
@@ -2624,7 +2711,7 @@ async function submitNewAuthor(){
   if(saveToDirectory){
     directoryId = 'dir_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
     state.authorDirectory = state.authorDirectory || [];
-    state.authorDirectory.push({ id: directoryId, name, affiliation, email, orcid, addedAt: Date.now() });
+    state.authorDirectory.push({ id: directoryId, name, affiliations, email, orcid, addedAt: Date.now() });
     const dirOk = await setAuthorDirectory(state.authorDirectory);
     if(!dirOk) showToast('주소록 저장에 실패했어요 (저자는 이번 프로젝트에는 추가돼요)');
   }
@@ -2632,12 +2719,13 @@ async function submitNewAuthor(){
   state.authors = state.authors || [];
   state.authors.push({
     id: 'auth_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-    directoryId, name, affiliation, email, orcid,
+    directoryId, name, affiliations, email, orcid,
     isCoFirst:false, isCorresponding:false, addedAt: Date.now()
   });
   const ok = await setProjectAuthors(state.currentProjectId, state.authors);
   if(!ok) showToast('저자 저장에 실패했어요. 다시 시도해주세요');
   authorFormOpen = false;
+  newAuthorAffiliations = [];
   const project = await getProject(state.currentProjectId);
   if(project) renderWorkspace(project);
 }
@@ -3017,17 +3105,18 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     const affNumbers = new Map();
     let nextAff = 1;
     authors.forEach(a => {
-      const aff = (a.affiliation || '').trim();
-      if(aff && !affNumbers.has(aff)) affNumbers.set(aff, nextAff++);
+      authorAffiliations(a).forEach(aff => {
+        aff = (aff || '').trim();
+        if(aff && !affNumbers.has(aff)) affNumbers.set(aff, nextAff++);
+      });
     });
 
     const nameRuns = [];
     authors.forEach((a, idx) => {
       if(idx > 0) nameRuns.push({ text: ', ', size:22 });
       nameRuns.push({ text: a.name || '(이름 없음)', size:22 });
-      const aff = (a.affiliation || '').trim();
-      let marks = '';
-      if(aff) marks += affNumbers.get(aff);
+      const affNums = authorAffiliations(a).map(aff => affNumbers.get((aff||'').trim())).filter(Boolean);
+      let marks = affNums.join(',');
       if(a.isCoFirst) marks += '†';
       if(a.isCorresponding) marks += '*';
       if(marks) nameRuns.push({ text: marks, size:22, superscript:true });
