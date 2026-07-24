@@ -1232,7 +1232,15 @@ function toggleInsertPicker(kind, sectionKey){
     existing.remove();
     if(wasKind === kind && wasSection === (sectionKey || '')) return; // 같은 버튼을 다시 누르면 닫기만 함
   }
-  if(sectionKey) state.activeTextareaId = 'sec-content-input-' + sectionKey;
+  if(sectionKey){
+    state.activeTextareaId = 'sec-content-input-' + sectionKey;
+    // 팝오버 안의 체크박스/버튼을 클릭하면 본문이 포커스를 잃으면서 커서 위치가
+    // 사라지는 경우가 있다(특히 여러 개를 고르는 참고문헌 다중 선택). 패널을 여는
+    // 시점의 커서를 미리 저장해뒀다가 실제 삽입할 때 복원한다.
+    const el = document.getElementById(state.activeTextareaId);
+    const sel = window.getSelection();
+    state.savedInsertRange = (el && sel.rangeCount && el.contains(sel.anchorNode)) ? sel.getRangeAt(0).cloneRange() : null;
+  }
   const container = sectionKey ? document.getElementById('ms-section-' + sectionKey) : document.querySelector('.editor-pane');
   const head = container ? container.querySelector('.editor-head') : document.querySelector('.editor-head');
   if(!head){ showToast('삽입 패널을 열 위치를 찾지 못했어요'); return; }
@@ -1256,13 +1264,17 @@ function insertContentAtCursor(html){
   if(!el){ showToast('삽입할 위치를 찾지 못했어요. 본문을 한 번 클릭한 뒤 다시 시도해주세요'); return; }
   el.focus();
   const sel = window.getSelection();
-  if(!sel.rangeCount || !el.contains(sel.anchorNode)){
+  if(state.savedInsertRange && el.contains(state.savedInsertRange.startContainer)){
+    sel.removeAllRanges();
+    sel.addRange(state.savedInsertRange);
+  } else if(!sel.rangeCount || !el.contains(sel.anchorNode)){
     const range = document.createRange();
     range.selectNodeContents(el);
     range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
   }
+  state.savedInsertRange = null; // 한 번 쓰면 비워서 다음 삽입에 잘못 재사용되지 않게 한다
   try{
     document.execCommand('insertHTML', false, html);
   }catch(e){
