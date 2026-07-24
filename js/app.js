@@ -2078,6 +2078,60 @@ function persistSectionAfterHighlightChange(sectionKey){
   broadcastSectionEdit(sectionKey, el.innerHTML);
 }
 
+// 전자책 리더처럼: 본문에서 문구를 선택하면(마우스를 떼는 순간) 선택 영역
+// 바로 위에 작은 "하이라이트" 버튼이 떠서, 상단 버튼까지 갈 필요가 없다.
+let selectHighlightBtnEl = null;
+
+function initSelectionHighlightUI(){
+  document.addEventListener('mouseup', handleTextSelectionForHighlight);
+  document.addEventListener('mousedown', (e) => {
+    if(!e.target.closest || !e.target.closest('.select-highlight-btn')) removeSelectHighlightBtn();
+  });
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if(!sel || sel.isCollapsed) removeSelectHighlightBtn();
+  });
+}
+
+function handleTextSelectionForHighlight(e){
+  if(e.target.closest && e.target.closest('.select-highlight-btn')) return; // 버튼 클릭 자체는 무시
+  const sel = window.getSelection();
+  if(!sel || sel.rangeCount === 0 || sel.isCollapsed || !sel.toString().trim()){ removeSelectHighlightBtn(); return; }
+  const range = sel.getRangeAt(0);
+  const startEl = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const endEl = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
+  const editorArea = startEl && startEl.closest('.editor-area[id^="sec-content-input-"]');
+  if(!editorArea || !endEl || !editorArea.contains(endEl)){ removeSelectHighlightBtn(); return; }
+  const sectionKey = editorArea.id.slice('sec-content-input-'.length);
+  showSelectHighlightBtn(range, sectionKey);
+}
+
+function removeSelectHighlightBtn(){
+  if(selectHighlightBtnEl){ selectHighlightBtnEl.remove(); selectHighlightBtnEl = null; }
+}
+
+function showSelectHighlightBtn(range, sectionKey){
+  removeSelectHighlightBtn();
+  const rect = range.getBoundingClientRect();
+  if(!rect || (rect.width === 0 && rect.height === 0)) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'select-highlight-btn';
+  btn.innerHTML = '🖍 하이라이트';
+  const showAbove = rect.top > 44;
+  btn.style.top = (showAbove ? rect.top - 38 : rect.bottom + 8) + 'px';
+  document.body.appendChild(btn); // 너비를 알아야 가로 위치를 잡을 수 있어 일단 붙인다
+  const btnWidth = btn.offsetWidth || 100;
+  btn.style.left = Math.max(8, Math.min(window.innerWidth - btnWidth - 8, rect.left + rect.width/2 - btnWidth/2)) + 'px';
+  // mousedown에서 preventDefault를 안 하면 버튼을 누르는 순간 선택이 풀려버린다.
+  btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+  btn.addEventListener('click', () => {
+    removeSelectHighlightBtn();
+    addHighlightToSection(sectionKey);
+  });
+  selectHighlightBtnEl = btn;
+}
+
 async function addHighlightToSection(sectionKey){
   const el = document.getElementById('sec-content-input-' + sectionKey);
   if(!el) return;
@@ -2299,6 +2353,8 @@ function renderRefManager(project){
       <input type="text" id="ref-new-label" placeholder="짧은 표시 이름 (예: Kim et al. 2021)" />
       <textarea id="ref-new-text" placeholder="전체 참고문헌 텍스트를 붙여넣거나 직접 입력하세요 (예: H.J. Kim, et al., Microstructure evolution in Al-Mg-Si alloys, Acta Mater. 68 (2021) 112–120.)"></textarea>
       <input type="text" id="ref-new-doi" placeholder="DOI 또는 링크 (선택)" />
+      <label class="fig-field-label fig-field-label-note" style="display:block;">메모 (이 문헌을 왜 인용했는지 등 — 나만 보는 작업 메모)</label>
+      <textarea id="ref-new-note" class="fig-note-input" style="width:100%;box-sizing:border-box;margin-bottom:8px;" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용 / 서론에서 배경 설명용"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn secondary small" onclick="cancelAddReference()">취소</button>
         <button class="btn small" onclick="submitReference()">추가</button>
@@ -2321,6 +2377,8 @@ function renderRefManager(project){
         </div>
         <textarea class="ref-text-input" data-ref-id="${r.id}" data-field="text" placeholder="전체 참고문헌 텍스트">${escapeHtml(r.text||'')}</textarea>
         <input type="text" class="ref-doi-input" data-ref-id="${r.id}" data-field="doi" value="${escapeHtml(r.doi||'')}" placeholder="DOI 또는 링크 (선택)" />
+        <label class="fig-field-label fig-field-label-note">메모 (이 문헌을 왜 인용했는지 — 나만 보는 작업 메모)</label>
+        <textarea class="ref-note-input fig-note-input" data-ref-id="${r.id}" data-field="note" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용">${escapeHtml(r.note||'')}</textarea>
       </div>
     </div>
   `).join('');
@@ -2337,7 +2395,7 @@ function renderRefManager(project){
     document.getElementById('ref-new-label').focus();
   }
 
-  pane.querySelectorAll('.ref-label-input, .ref-text-input, .ref-doi-input').forEach(el => {
+  pane.querySelectorAll('.ref-label-input, .ref-text-input, .ref-doi-input, .ref-note-input').forEach(el => {
     el.addEventListener('input', (e) => {
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
@@ -2382,11 +2440,12 @@ async function submitReference(){
   const label = document.getElementById('ref-new-label').value.trim();
   const text = document.getElementById('ref-new-text').value.trim();
   const doi = document.getElementById('ref-new-doi').value.trim();
+  const note = document.getElementById('ref-new-note').value.trim();
   if(!text){ showToast('참고문헌 전체 텍스트를 입력해주세요'); return; }
   state.references = state.references || [];
   state.references.push({
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-    label, text, doi, addedAt: Date.now()
+    label, text, doi, note, addedAt: Date.now()
   });
   const ok = await setReferences(state.currentProjectId, state.references);
   if(!ok) showToast('참고문헌 저장에 실패했어요. 다시 시도해주세요');
@@ -3092,7 +3151,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       return `<w:tr>${Array.from({length: colCount}).map((_,ci) =>
         tableCellXml(row[ci]||'', { bottomRule:isLast })).join('')}</w:tr>`;
     }).join('');
-    return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblLayout w:type="autofit"/><w:tblLook w:val="0000" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="0"/></w:tblPr><w:tblGrid>${gridCols}</w:tblGrid>${headerRow}${bodyRows}</w:tbl>`;
+    return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:jc w:val="center"/><w:tblLayout w:type="autofit"/><w:tblLook w:val="0000" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="0" w:noVBand="0"/></w:tblPr><w:tblGrid>${gridCols}</w:tblGrid>${headerRow}${bodyRows}</w:tbl>`;
   }
   function extractTableDataFromDom(tableEl){
     const columns = Array.from(tableEl.querySelectorAll('thead th')).map(th => th.textContent);
@@ -3103,11 +3162,12 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   }
 
   function pText(text, opts){
-    opts = Object.assign({ bold:false, italic:false, size:22, align:'left', after:160 }, opts||{});
+    opts = Object.assign({ bold:false, italic:false, size:22, align:'left', after:160, lineSpacing:null }, opts||{});
     if(text == null || text === '') text = ' ';
     const rPr = `<w:rPr>${opts.bold?'<w:b/>':''}${opts.italic?'<w:i/>':''}<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/></w:rPr>`;
     const runs = String(text).split('\n').map((line,idx) => (idx>0?'<w:br/>':'') + `<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`).join('');
-    return `<w:p><w:pPr><w:spacing w:after="${opts.after}"/><w:jc w:val="${opts.align}"/></w:pPr><w:r>${rPr}${runs}</w:r></w:p>`;
+    const lineAttr = opts.lineSpacing ? ` w:line="${opts.lineSpacing}" w:lineRule="auto"` : '';
+    return `<w:p><w:pPr><w:spacing w:after="${opts.after}"${lineAttr}/><w:jc w:val="${opts.align}"/></w:pPr><w:r>${rPr}${runs}</w:r></w:p>`;
   }
 
   function pHeading(text){
@@ -3166,7 +3226,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   async function contentToParagraphs(raw){
     if(!raw || !extractPlainText(raw).trim()) return pText('(작성되지 않음)', { italic:true, size:20 });
     if(!looksLikeHtml(raw)){
-      return raw.split(/\n{2,}/).map(par => pText(par, { size:22 })).join('');
+      return raw.split(/\n{2,}/).map(par => pText(par, { size:22, align:'both', lineSpacing:480 })).join('');
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
@@ -3190,7 +3250,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         }
       } else {
         const text = node.textContent || '';
-        if(text.trim()) out += pText(text, { size:22 });
+        if(text.trim()) out += pText(text, { size:22, align:'both', lineSpacing:480 });
       }
     }
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
@@ -3518,6 +3578,7 @@ onAuthStateChange((event) => {
 });
 
 window.addEventListener('beforeunload', () => { leaveProjectRealtime(); });
+initSelectionHighlightUI();
 
 (async function initApp(){
   const session = await getSession();
