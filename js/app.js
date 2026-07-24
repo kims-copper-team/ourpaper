@@ -3226,7 +3226,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   async function contentToParagraphs(raw){
     if(!raw || !extractPlainText(raw).trim()) return pText('(작성되지 않음)', { italic:true, size:20 });
     if(!looksLikeHtml(raw)){
-      return raw.split(/\n{2,}/).map(par => pText(par, { size:22, align:'both', lineSpacing:480 })).join('');
+      return raw.split(/\n{2,}/).map(par => pText(par, { size:22, align:'left', lineSpacing:480 })).join('');
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
@@ -3250,7 +3250,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         }
       } else {
         const text = node.textContent || '';
-        if(text.trim()) out += pText(text, { size:22, align:'both', lineSpacing:480 });
+        if(text.trim()) out += pText(text, { size:22, align:'left', lineSpacing:480 });
       }
     }
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
