@@ -3240,8 +3240,13 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         const img = node.querySelector('img');
         const captionEl = node.querySelector('.inline-figure-caption');
         if(img && img.src){
-          const { rId, size, num } = await registerImage(img.src);
-          out += pImage(rId, size, num);
+          try{
+            const { rId, size, num } = await registerImage(img.src);
+            out += pImage(rId, size, num);
+          }catch(e){
+            console.error('그림을 내보내기에 포함하지 못했어요:', img.src, e);
+            out += pText('[그림을 불러오지 못했어요]', { italic:true, size:18, align:'center', after:40 });
+          }
           out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
         }
       } else if(node.nodeType === 1 && node.classList && node.classList.contains('inline-table')){
@@ -3254,7 +3259,13 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         }
       } else {
         const text = node.textContent || '';
-        if(text.trim()) out += pText(text, { size:22, align:'both', lineSpacing:480 });
+        // 한 DOM 노드 안에 실제 줄바꿈 문자가 여러 개 박혀있는 경우(예전 형식의
+        // 붙여넣기 등)까지 대비: 그대로 pText 하나에 넘기면 내부적으로 <w:br/>로만
+        // 이어붙여져 한 문단으로 뭉쳐버리고, Word가 진짜 마지막 줄을 못 찾아 그
+        // 안의 모든 줄을 양쪽 맞춤으로 늘려버린다. 문단마다 별도 <w:p>로 낸다.
+        text.split(/\n+/).forEach(par => {
+          if(par.trim()) out += pText(par, { size:22, align:'both', lineSpacing:480 });
+        });
       }
     }
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
@@ -3303,8 +3314,13 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     body += `<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`;
     body += pHeading('Figures');
     for(const f of appendixFigures){
-      const { rId, size, num } = await registerImage(figureSrc(f));
-      body += pImage(rId, size, num);
+      try{
+        const { rId, size, num } = await registerImage(figureSrc(f));
+        body += pImage(rId, size, num);
+      }catch(e){
+        console.error('그림을 내보내기에 포함하지 못했어요:', f.fileName, e);
+        body += pText('[그림을 불러오지 못했어요: ' + (f.fileName||'') + ']', { italic:true, size:18, align:'center', after:40 });
+      }
       body += pText(`Fig. ${f.num}. ${f.caption || '(캡션 미작성)'}`, { size:18, align:'center', after:280 });
     }
   }
