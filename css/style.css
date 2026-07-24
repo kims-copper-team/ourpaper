@@ -374,6 +374,13 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .insert-item .insert-text{ flex:1; min-width:0; }
 .insert-item .insert-primary{ font-size:12.5px; color:var(--ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .insert-item .insert-secondary{ font-size:11px; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.insert-item-check{ cursor:pointer; }
+.insert-item-check input[type=checkbox]{ flex-shrink:0; accent-color:var(--ink); }
+.insert-multi-bar{
+  position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
+  background:#fff; border-bottom:1px solid var(--line); padding:6px 8px 8px; margin-bottom:4px;
+}
+.insert-multi-count{ font-size:11px; color:var(--ink-faint); }
 
 .ref-card{ display:flex; gap:12px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; }
 .ref-card.dragging{ opacity:0.35; }

@@ -1187,15 +1187,41 @@ function buildRefInsertItemsHtml(){
   if(refs.length === 0){
     return `<div class="insert-popover-empty">아직 등록한 참고문헌이 없어요.<br>Ref Ledger에서 먼저 추가해보세요.</div>`;
   }
-  return refs.map((r,i) => `
-    <button class="insert-item" onclick="pickRefInsert(${i})">
+  const items = refs.map((r,i) => `
+    <label class="insert-item insert-item-check">
+      <input type="checkbox" class="insert-ref-checkbox" value="${i}" onchange="updateRefInsertSubmit()" />
       <span class="insert-num">[${i+1}]</span>
       <span class="insert-text">
         <div class="insert-primary">${escapeHtml(r.label || ('참고문헌 ' + (i+1)))}</div>
         <div class="insert-secondary">${escapeHtml(r.text || '')}</div>
       </span>
-    </button>
+    </label>
   `).join('');
+  return `
+    <div class="insert-multi-bar">
+      <span class="insert-multi-count" id="ref-insert-count">0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요</span>
+      <button type="button" class="btn small" id="ref-insert-submit" disabled onclick="submitRefInsertPick()">삽입</button>
+    </div>
+    ${items}
+  `;
+}
+
+function updateRefInsertSubmit(){
+  const checked = document.querySelectorAll('.insert-ref-checkbox:checked');
+  const btn = document.getElementById('ref-insert-submit');
+  const count = document.getElementById('ref-insert-count');
+  if(btn) btn.disabled = checked.length === 0;
+  if(count) count.textContent = checked.length
+    ? `${checked.length}개 선택됨 → [${compressRefNumbers(Array.from(checked).map(el => parseInt(el.value,10)+1))}]`
+    : '0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요';
+}
+
+function submitRefInsertPick(){
+  const checked = Array.from(document.querySelectorAll('.insert-ref-checkbox:checked'));
+  if(!checked.length) return;
+  const nums = checked.map(el => parseInt(el.value,10)+1);
+  insertContentAtCursor(escapeHtml(`[${compressRefNumbers(nums)}]`));
+  closeInsertPicker();
 }
 
 function toggleInsertPicker(kind, sectionKey){
@@ -1270,14 +1296,6 @@ function pickFigureInsert(index){
   }
   closeInsertPicker();
 }
-function pickRefInsert(index){
-  const refs = state.references || [];
-  const r = refs[index];
-  if(!r) return;
-  insertContentAtCursor(escapeHtml(`[${index+1}]`));
-  closeInsertPicker();
-}
-
 function buildTableInsertPanel(){
   const mode = state.tableInsertMode || 'embed';
   const tables = state.tables || [];
@@ -1376,6 +1394,62 @@ function renumberTokensInProject(project, mapping, buildMatcher, renderToken){
 
 function refTokenMatcher(n){ return new RegExp('\\[' + n + '\\]', 'g'); }
 function refTokenRender(n){ return `[${n}]`; }
+
+// 인용 번호 여러 개를 논문 스타일로 압축: [1,2,3] -> "1-3", [2,5,6,7] -> "2,5-7"
+function compressRefNumbers(nums){
+  const sorted = Array.from(new Set(nums)).filter(n => Number.isFinite(n)).sort((a,b) => a-b);
+  const parts = [];
+  let i = 0;
+  while(i < sorted.length){
+    let j = i;
+    while(j+1 < sorted.length && sorted[j+1] === sorted[j]+1) j++;
+    parts.push(j > i ? `${sorted[i]}-${sorted[j]}` : `${sorted[i]}`);
+    i = j+1;
+  }
+  return parts.join(',');
+}
+// 압축된 인용 표기를 다시 개별 번호 배열로: "1-3,5" -> [1,2,3,5]
+function expandRefNumbers(str){
+  const nums = new Set();
+  (str||'').split(',').forEach(part => {
+    part = part.trim();
+    const range = /^(\d+)\s*[-–]\s*(\d+)$/.exec(part);
+    if(range){
+      const a = parseInt(range[1],10), b = parseInt(range[2],10);
+      for(let n = Math.min(a,b); n <= Math.max(a,b); n++) nums.add(n);
+    } else if(/^\d+$/.test(part)){
+      nums.add(parseInt(part,10));
+    }
+  });
+  return Array.from(nums);
+}
+// 본문에 있는 인용 대괄호(단일 [3] 또는 압축된 [1-3,5] 모두)의 번호를 새 순서에
+// 맞게 다시 매핑하고, 필요하면 범위 표기를 다시 압축해 넣는다.
+function renumberRefCitationsInProject(project, mapping){
+  if(!mapping.length) return false;
+  const mapObj = {};
+  mapping.forEach(({oldNum, newNum}) => { mapObj[oldNum] = newNum; });
+  let changed = false;
+  const bracketRe = /\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]/g;
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return; // References 섹션은 Ref Ledger에서 자동 생성되므로 대상 아님
+    const original = project.content[sec.key] || '';
+    if(!original) return;
+    const text = original.replace(bracketRe, (whole) => {
+      const nums = expandRefNumbers(whole.slice(1,-1));
+      if(!nums.length) return whole;
+      let touched = false;
+      const remapped = nums.map(n => {
+        if(mapObj.hasOwnProperty(n)){ touched = true; return mapObj[n]; }
+        return n;
+      });
+      if(!touched) return whole;
+      return '[' + compressRefNumbers(remapped) + ']';
+    });
+    if(text !== original){ project.content[sec.key] = text; changed = true; }
+  });
+  return changed;
+}
 function figTokenMatcher(n){ return new RegExp('Fig\\.\\s*' + n + '(?!\\d)', 'g'); }
 function figTokenRender(n){ return `Fig. ${n}`; }
 function tableTokenMatcher(n){ return new RegExp('Table\\s*' + n + '(?!\\d)', 'g'); }
@@ -2467,7 +2541,7 @@ async function moveReference(id, dir){
   const project = await getProject(state.currentProjectId);
   if(!project) return;
   const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, refTokenMatcher, refTokenRender);
+  const changed = renumberRefCitationsInProject(project, mapping);
   if(changed){
     await setProject(project);
     showToast('본문의 인용 번호를 새 순서에 맞게 업데이트했어요');
@@ -2489,7 +2563,7 @@ async function reorderReferences(srcId, targetId){
   const project = await getProject(state.currentProjectId);
   if(!project) return;
   const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, refTokenMatcher, refTokenRender);
+  const changed = renumberRefCitationsInProject(project, mapping);
   if(changed){
     await setProject(project);
     showToast('본문의 인용 번호를 새 순서에 맞게 업데이트했어요');
