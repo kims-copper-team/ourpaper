@@ -3313,6 +3313,55 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     return out;
   }
 
+  // 그림/표 삽입 시 커서 위치에 따라 브라우저가 .inline-figure/.inline-table를
+  // 새 형제가 아니라 기존 <div> 문단 안쪽에 한 겹 더 감싸 넣는 경우가 있다(실제
+  // 사용자 문서에서 확인됨). 최상위 자식만 보면 이 블록을 못 찾고 그냥 텍스트로
+  // 뭉개버려 그림이 통째로 빠지므로, 재귀적으로 내려가며 찾는다.
+  async function processContentNode(node){
+    if(node.nodeType === 1 && node.classList && node.classList.contains('inline-figure')){
+      const img = node.querySelector('img');
+      const captionEl = node.querySelector('.inline-figure-caption');
+      let out = '';
+      if(img && img.src){
+        try{
+          const { rId, size, num } = await registerImage(img.src);
+          out += pImage(rId, size, num);
+        }catch(e){
+          console.error('그림을 내보내기에 포함하지 못했어요:', img.src, e);
+          out += pText('[그림을 불러오지 못했어요]', { italic:true, size:18, align:'center', after:40 });
+        }
+        out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
+      }
+      return out;
+    }
+    if(node.nodeType === 1 && node.classList && node.classList.contains('inline-table')){
+      const captionEl = node.querySelector('.inline-table-caption');
+      const tableEl = node.querySelector('table');
+      let out = pText(captionEl ? captionEl.textContent : '', { size:20, align:'left', after:80 });
+      if(tableEl){
+        out += tableXml(extractTableDataFromDom(tableEl));
+        out += pText('', { after:280 });
+      }
+      return out;
+    }
+    if(node.nodeType === 1 && node.querySelector && node.querySelector('.inline-figure, .inline-table')){
+      // 이 노드 자신은 그림/표가 아니지만 자손 어딘가에 있다 — 자식마다 재귀 처리
+      let out = '';
+      for(const child of Array.from(node.childNodes)) out += await processContentNode(child);
+      return out;
+    }
+    const text = node.textContent || '';
+    // 한 DOM 노드 안에 실제 줄바꿈 문자가 여러 개 박혀있는 경우(예전 형식의
+    // 붙여넣기 등)까지 대비: 그대로 pText 하나에 넘기면 내부적으로 <w:br/>로만
+    // 이어붙여져 한 문단으로 뭉쳐버리고, Word가 진짜 마지막 줄을 못 찾아 그
+    // 안의 모든 줄을 양쪽 맞춤으로 늘려버린다. 문단마다 별도 <w:p>로 낸다.
+    let out = '';
+    text.split(/\n+/).forEach(par => {
+      if(par.trim()) out += pText(par, { size:22, align:'both', lineSpacing:480 });
+    });
+    return out;
+  }
+
   async function contentToParagraphs(raw){
     if(!raw || !extractPlainText(raw).trim()) return pText('(작성되지 않음)', { italic:true, size:20 });
     if(!looksLikeHtml(raw)){
@@ -3321,39 +3370,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
     let out = '';
-    for(const node of Array.from(tmp.childNodes)){
-      if(node.nodeType === 1 && node.classList && node.classList.contains('inline-figure')){
-        const img = node.querySelector('img');
-        const captionEl = node.querySelector('.inline-figure-caption');
-        if(img && img.src){
-          try{
-            const { rId, size, num } = await registerImage(img.src);
-            out += pImage(rId, size, num);
-          }catch(e){
-            console.error('그림을 내보내기에 포함하지 못했어요:', img.src, e);
-            out += pText('[그림을 불러오지 못했어요]', { italic:true, size:18, align:'center', after:40 });
-          }
-          out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
-        }
-      } else if(node.nodeType === 1 && node.classList && node.classList.contains('inline-table')){
-        const captionEl = node.querySelector('.inline-table-caption');
-        const tableEl = node.querySelector('table');
-        out += pText(captionEl ? captionEl.textContent : '', { size:20, align:'left', after:80 });
-        if(tableEl){
-          out += tableXml(extractTableDataFromDom(tableEl));
-          out += pText('', { after:280 });
-        }
-      } else {
-        const text = node.textContent || '';
-        // 한 DOM 노드 안에 실제 줄바꿈 문자가 여러 개 박혀있는 경우(예전 형식의
-        // 붙여넣기 등)까지 대비: 그대로 pText 하나에 넘기면 내부적으로 <w:br/>로만
-        // 이어붙여져 한 문단으로 뭉쳐버리고, Word가 진짜 마지막 줄을 못 찾아 그
-        // 안의 모든 줄을 양쪽 맞춤으로 늘려버린다. 문단마다 별도 <w:p>로 낸다.
-        text.split(/\n+/).forEach(par => {
-          if(par.trim()) out += pText(par, { size:22, align:'both', lineSpacing:480 });
-        });
-      }
-    }
+    for(const node of Array.from(tmp.childNodes)) out += await processContentNode(node);
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
   }
 
