@@ -303,6 +303,12 @@ function isReferencesSection(sec){
 function isKeywordsSection(sec){
   return sec.key === 'keywords' || /keyword|키워드/i.test(sec.label || '');
 }
+// Graphical Abstract는 원고 파일과 별도로 EPS/TIFF/PDF 등으로 제출하는 이미지
+// 파일이라, 여기 적어둔 메모(어떤 이미지를 쓸지 계획해두는 칸)는 워드 원고에
+// 합쳐 넣지 않는다.
+function isGraphicalAbstractSection(sec){
+  return sec.key === 'graphical_abstract' || /graphical\s*abstract|그래픽\s*초록/i.test(sec.label || '');
+}
 // 화면에서는 줄바꿈·쉼표 등 어떻게 입력하든 상관없지만, 내보내기에서는
 // 논문 관례대로 "키워드1; 키워드2; 키워드3" 한 줄로 정리한다.
 function formatKeywordsForExport(rawContent){
@@ -3274,6 +3280,17 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     return `<w:p><w:pPr><w:spacing w:after="${opts.after}"/><w:jc w:val="${opts.align}"/></w:pPr>${runXml}</w:p>`;
   }
 
+  // 캡션이 "<b>Fig. N.</b> 나머지 설명" 구조일 때 앞의 굵은 표시(番号)만 bold로,
+  // 나머지는 일반 텍스트로 분리해서 pRuns용 run 배열을 만든다.
+  function captionRunsFromEl(captionEl, size){
+    if(!captionEl) return [{ text:'', size }];
+    const boldEl = captionEl.querySelector('b');
+    if(!boldEl) return [{ text: captionEl.textContent || '', size }];
+    const boldText = boldEl.textContent || '';
+    const restText = (captionEl.textContent || '').slice(boldText.length);
+    return [{ text: boldText, bold:true, size }, { text: restText, size }];
+  }
+
   // 저자 라인(이름 + 위첨자 소속번호/기호) + 소속 목록 + 각주 문단 생성
   function buildAuthorBlock(authors){
     if(!authors || !authors.length) return '';
@@ -3330,14 +3347,14 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
           console.error('그림을 내보내기에 포함하지 못했어요:', img.src, e);
           out += pText('[그림을 불러오지 못했어요]', { italic:true, size:18, align:'center', after:40 });
         }
-        out += pText(captionEl ? captionEl.textContent : '', { size:18, align:'center', after:280 });
+        out += pRuns(captionRunsFromEl(captionEl, 20), { align:'center', after:280 });
       }
       return out;
     }
     if(node.nodeType === 1 && node.classList && node.classList.contains('inline-table')){
       const captionEl = node.querySelector('.inline-table-caption');
       const tableEl = node.querySelector('table');
-      let out = pText(captionEl ? captionEl.textContent : '', { size:20, align:'left', after:80 });
+      let out = pRuns(captionRunsFromEl(captionEl, 20), { align:'center', after:80 });
       if(tableEl){
         out += tableXml(extractTableDataFromDom(tableEl));
         out += pText('', { after:280 });
@@ -3357,7 +3374,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     // 안의 모든 줄을 양쪽 맞춤으로 늘려버린다. 문단마다 별도 <w:p>로 낸다.
     let out = '';
     text.split(/\n+/).forEach(par => {
-      if(par.trim()) out += pText(par, { size:22, align:'both', lineSpacing:480 });
+      if(par.trim()) out += pText(par, { size:20, align:'both', lineSpacing:480 });
     });
     return out;
   }
@@ -3365,7 +3382,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   async function contentToParagraphs(raw){
     if(!raw || !extractPlainText(raw).trim()) return pText('(작성되지 않음)', { italic:true, size:20 });
     if(!looksLikeHtml(raw)){
-      return raw.split(/\n+/).map(par => pText(par, { size:22, align:'both', lineSpacing:480 })).join('');
+      return raw.split(/\n+/).map(par => pText(par, { size:20, align:'both', lineSpacing:480 })).join('');
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
@@ -3381,6 +3398,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   let numberedIndex = 0;
   for(let i=0; i<secs.length; i++){
     const s = secs[i];
+    if(isGraphicalAbstractSection(s)) continue; // 별도 파일로 제출하는 항목이라 원고에는 안 넣는다
     if(isUnnumberedSection(s)){
       body += pHeading(s.label);
     } else {
@@ -3406,7 +3424,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     body += `<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`;
     body += pHeading('Tables');
     for(const t of appendixTables){
-      body += pText(`Table ${t.num}. ${t.caption || '(캡션 미작성)'}`, { size:20, align:'left', after:80 });
+      body += pRuns([{ text:`Table ${t.num}.`, bold:true, size:20 }, { text:' '+(t.caption || '(캡션 미작성)'), size:20 }], { align:'center', after:80 });
       body += tableXml(t);
       body += pText('', { after:280 });
     }
@@ -3424,7 +3442,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
         console.error('그림을 내보내기에 포함하지 못했어요:', f.fileName, e);
         body += pText('[그림을 불러오지 못했어요: ' + (f.fileName||'') + ']', { italic:true, size:18, align:'center', after:40 });
       }
-      body += pText(`Fig. ${f.num}. ${f.caption || '(캡션 미작성)'}`, { size:18, align:'center', after:280 });
+      body += pRuns([{ text:`Fig. ${f.num}.`, bold:true, size:20 }, { text:' '+(f.caption || '(캡션 미작성)'), size:20 }], { align:'center', after:280 });
     }
   }
 
