@@ -102,6 +102,7 @@ let state = {
   tables:[], tableSaveTimer:null, tablesLoadFailed:false,
   members:[], membersLoadFailed:false,
   highlights:[], highlightsLoadFailed:false, commentFilter:'open',
+  itemComments:[],
   activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
   openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
   realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{}
@@ -609,6 +610,8 @@ async function openWorkspace(id){
   const { highlights, failed: highlightsFailed } = await listHighlights(id);
   state.highlightsLoadFailed = highlightsFailed;
   state.highlights = highlightsFailed ? [] : highlights;
+  const { itemComments } = await listItemComments(id);
+  state.itemComments = itemComments || [];
   const secs = getSections(project);
   state.currentSectionKey = secs.length ? secs[0].key : null;
   joinProjectRealtime(id);
@@ -1036,6 +1039,7 @@ function joinProjectRealtime(projectId){
   });
   channel.on('broadcast', { event:'edit' }, (msg) => handleRemoteEdit(msg.payload));
   channel.on('broadcast', { event:'highlight' }, (msg) => handleRemoteHighlightEvent(msg.payload));
+  channel.on('broadcast', { event:'item_comment' }, (msg) => handleRemoteItemCommentEvent(msg.payload));
   channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
   channel.subscribe((status) => {
     if(status === 'SUBSCRIBED'){
@@ -1701,8 +1705,8 @@ function renderFigureManager(project){
         <div class="fig-filename">${escapeHtml(f.fileName)}</div>
         <label class="fig-field-label">캡션 (본문·Word 내보내기에 포함)</label>
         <textarea class="fig-caption-input" data-fig-id="${f.id}" placeholder="캡션을 입력하세요 (예: 시효 조건에 따른 미세조직 변화)">${escapeHtml(f.caption||'')}</textarea>
-        <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
-        <textarea class="fig-note-input" data-fig-id="${f.id}" placeholder="예: 배율을 더 높여서 다시 찍어야 함 / 대조군 이미지와 나란히 배치 예정">${escapeHtml(f.note||'')}</textarea>
+        <label class="fig-field-label fig-field-label-note">팀 댓글</label>
+        ${renderItemThreadHtml('figure', f.id)}
       </div>
     </div>
   `;
@@ -1855,8 +1859,8 @@ function renderTableManager(project){
       </div>
       <label class="fig-field-label">캡션 (표 위에 표시됨, 본문·Word 내보내기에 포함)</label>
       <textarea class="fig-caption-input tbl-caption-input" data-table-id="${t.id}" placeholder="캡션을 입력하세요 (예: Chemistry composition of designed alloy, wt%.)">${escapeHtml(t.caption||'')}</textarea>
-      <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
-      <textarea class="fig-note-input tbl-note-input" data-table-id="${t.id}" placeholder="예: 마지막 합금 조성값 재확인 필요">${escapeHtml(t.note||'')}</textarea>
+      <label class="fig-field-label fig-field-label-note">팀 댓글</label>
+      ${renderItemThreadHtml('table', t.id)}
       <div class="tbl-grid-wrap">
         <table class="tbl-edit-grid">
           <thead><tr>${headHtml}<th class="tbl-grid-actions"><button title="열 추가" onclick="addTableColumn('${t.id}')">＋</button></th></tr></thead>
@@ -2676,6 +2680,137 @@ function playNotificationSound(){
   }catch(e){}
 }
 
+/* ============== ITEM COMMENTS (그림·표·참고문헌 쓰레드 댓글) ============== */
+
+function mapItemCommentRow(row){
+  return {
+    id: row.id, projectId: row.project_id,
+    itemType: row.item_type, itemId: row.item_id,
+    userId: row.user_id, content: row.content,
+    createdAt: new Date(row.created_at).getTime(),
+    displayName: row.profiles ? row.profiles.display_name : '',
+    email: row.profiles ? row.profiles.email : ''
+  };
+}
+
+async function listItemComments(projectId){
+  for(let i=0; i<3; i++){
+    const { data, error } = await window.sb.from('item_comments')
+      .select('id,project_id,item_type,item_id,user_id,content,created_at,profiles(display_name,email)')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending:true });
+    if(!error) return { itemComments: (data||[]).map(mapItemCommentRow) };
+    await new Promise(res => setTimeout(res, 400*(i+1)));
+  }
+  return { itemComments: [] };
+}
+
+async function createItemComment(projectId, itemType, itemId, content){
+  const session = await getSession();
+  if(!session) return null;
+  const { data, error } = await window.sb.from('item_comments').insert({
+    project_id: projectId, item_type: itemType, item_id: itemId,
+    user_id: session.user.id, content
+  }).select('id,project_id,item_type,item_id,user_id,content,created_at').single();
+  if(error){ console.error('댓글 추가 실패:', error); return null; }
+  const profile = state.currentUser && state.currentUser.profile;
+  return mapItemCommentRow(Object.assign({}, data, { profiles: profile }));
+}
+
+async function deleteItemCommentRow(id){
+  const { error } = await window.sb.from('item_comments').delete().eq('id', id);
+  if(error){ console.error('댓글 삭제 실패:', error); return false; }
+  return true;
+}
+
+function itemCommentsFor(itemType, itemId){
+  return (state.itemComments || []).filter(c => c.itemType === itemType && c.itemId === itemId);
+}
+
+function renderItemThreadHtml(itemType, itemId){
+  const comments = itemCommentsFor(itemType, itemId);
+  const myId = state.currentUser && state.currentUser.id;
+  const rows = comments.map(c => {
+    const color = colorForUser(c.userId);
+    const isMine = c.userId === myId;
+    return `<div class="ic-row" data-ic-id="${c.id}">
+      <span class="ic-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(((c.displayName||c.email||'?').trim()[0]||'?').toUpperCase())}</span>
+      <div class="ic-body">
+        <div class="ic-meta"><span class="ic-author" style="color:${color};">${escapeHtml(c.displayName||c.email||'알 수 없음')}</span><span class="ic-date">${fmtDate(c.createdAt)}</span></div>
+        <div class="ic-text">${escapeHtml(c.content)}</div>
+      </div>
+      ${isMine ? `<button class="ic-delete-btn" title="삭제" onclick="deleteItemComment('${c.id}','${itemType}','${itemId}')">✕</button>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="ic-thread" id="ic-thread-${itemType}-${itemId}">${rows || '<div class="ic-empty">아직 댓글이 없어요</div>'}</div>
+    <div class="ic-input-row">
+      <input type="text" class="ic-input" id="ic-input-${itemType}-${itemId}" placeholder="댓글 남기기…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitItemComment('${itemType}','${itemId}');}"/>
+      <button class="btn small" onclick="submitItemComment('${itemType}','${itemId}')">등록</button>
+    </div>`;
+}
+
+async function submitItemComment(itemType, itemId){
+  const input = document.getElementById(`ic-input-${itemType}-${itemId}`);
+  if(!input) return;
+  const content = input.value.trim();
+  if(!content){ showToast('댓글 내용을 입력해주세요'); return; }
+  input.value = '';
+  const comment = await createItemComment(state.currentProjectId, itemType, itemId, content);
+  if(!comment){ showToast('댓글 등록에 실패했어요'); return; }
+  state.itemComments = state.itemComments || [];
+  state.itemComments.push(comment);
+  refreshItemThread(itemType, itemId);
+  broadcastItemCommentEvent('create', comment);
+}
+
+async function deleteItemComment(id, itemType, itemId){
+  const ok = await deleteItemCommentRow(id);
+  if(!ok){ showToast('댓글 삭제에 실패했어요'); return; }
+  state.itemComments = (state.itemComments || []).filter(c => c.id !== id);
+  refreshItemThread(itemType, itemId);
+  broadcastItemCommentEvent('delete', { id, itemType, itemId });
+}
+
+function refreshItemThread(itemType, itemId){
+  const el = document.getElementById(`ic-thread-${itemType}-${itemId}`);
+  if(!el) return;
+  const comments = itemCommentsFor(itemType, itemId);
+  const myId = state.currentUser && state.currentUser.id;
+  el.innerHTML = comments.map(c => {
+    const color = colorForUser(c.userId);
+    const isMine = c.userId === myId;
+    return `<div class="ic-row" data-ic-id="${c.id}">
+      <span class="ic-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(((c.displayName||c.email||'?').trim()[0]||'?').toUpperCase())}</span>
+      <div class="ic-body">
+        <div class="ic-meta"><span class="ic-author" style="color:${color};">${escapeHtml(c.displayName||c.email||'알 수 없음')}</span><span class="ic-date">${fmtDate(c.createdAt)}</span></div>
+        <div class="ic-text">${escapeHtml(c.content)}</div>
+      </div>
+      ${isMine ? `<button class="ic-delete-btn" title="삭제" onclick="deleteItemComment('${c.id}','${itemType}','${itemId}')">✕</button>` : ''}
+    </div>`;
+  }).join('') || '<div class="ic-empty">아직 댓글이 없어요</div>';
+}
+
+function broadcastItemCommentEvent(action, comment){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'item_comment',
+    payload:{ action, comment, fromUserId: state.currentUser.id }
+  });
+}
+
+function handleRemoteItemCommentEvent(payload){
+  const { action, comment, fromUserId } = payload || {};
+  if(!comment || fromUserId === (state.currentUser && state.currentUser.id)) return;
+  state.itemComments = state.itemComments || [];
+  if(action === 'create'){
+    if(!state.itemComments.find(c => c.id === comment.id)) state.itemComments.push(comment);
+    refreshItemThread(comment.itemType, comment.itemId);
+  } else if(action === 'delete'){
+    state.itemComments = state.itemComments.filter(c => c.id !== comment.id);
+    refreshItemThread(comment.itemType, comment.itemId);
+  }
+}
+
 /* ============== REF LEDGER (참고문헌 관리) ============== */
 let refFormOpen = false;
 
@@ -2701,8 +2836,6 @@ function renderRefManager(project){
       <input type="text" id="ref-new-label" placeholder="짧은 표시 이름 (예: Kim et al. 2021)" />
       <textarea id="ref-new-text" placeholder="전체 참고문헌 텍스트를 붙여넣거나 직접 입력하세요 (예: H.J. Kim, et al., Microstructure evolution in Al-Mg-Si alloys, Acta Mater. 68 (2021) 112–120.)"></textarea>
       <input type="text" id="ref-new-doi" placeholder="DOI 또는 링크 (선택)" />
-      <label class="fig-field-label fig-field-label-note" style="display:block;">팀 댓글 (팀원에게 공유됩니다)</label>
-      <textarea id="ref-new-note" class="fig-note-input" style="width:100%;box-sizing:border-box;margin-bottom:8px;" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용 / 서론에서 배경 설명용"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn secondary small" onclick="cancelAddReference()">취소</button>
         <button class="btn small" onclick="submitReference()">추가</button>
@@ -2725,8 +2858,8 @@ function renderRefManager(project){
         </div>
         <textarea class="ref-text-input" data-ref-id="${r.id}" data-field="text" placeholder="전체 참고문헌 텍스트">${escapeHtml(r.text||'')}</textarea>
         <input type="text" class="ref-doi-input" data-ref-id="${r.id}" data-field="doi" value="${escapeHtml(r.doi||'')}" placeholder="DOI 또는 링크 (선택)" />
-        <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
-        <textarea class="ref-note-input fig-note-input" data-ref-id="${r.id}" data-field="note" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용">${escapeHtml(r.note||'')}</textarea>
+        <label class="fig-field-label fig-field-label-note">팀 댓글</label>
+        ${renderItemThreadHtml('reference', r.id)}
       </div>
     </div>
   `).join('');
@@ -2743,7 +2876,7 @@ function renderRefManager(project){
     document.getElementById('ref-new-label').focus();
   }
 
-  pane.querySelectorAll('.ref-label-input, .ref-text-input, .ref-doi-input, .ref-note-input').forEach(el => {
+  pane.querySelectorAll('.ref-label-input, .ref-text-input, .ref-doi-input').forEach(el => {
     el.addEventListener('input', (e) => {
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
@@ -2788,12 +2921,11 @@ async function submitReference(){
   const label = document.getElementById('ref-new-label').value.trim();
   const text = document.getElementById('ref-new-text').value.trim();
   const doi = document.getElementById('ref-new-doi').value.trim();
-  const note = document.getElementById('ref-new-note').value.trim();
   if(!text){ showToast('참고문헌 전체 텍스트를 입력해주세요'); return; }
   state.references = state.references || [];
   state.references.push({
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-    label, text, doi, note, addedAt: Date.now()
+    label, text, doi, addedAt: Date.now()
   });
   const ok = await setReferences(state.currentProjectId, state.references);
   if(!ok) showToast('참고문헌 저장에 실패했어요. 다시 시도해주세요');
