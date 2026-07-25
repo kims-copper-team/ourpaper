@@ -799,7 +799,7 @@ function renderManuscriptCanvas(project, isCustom){
       </div>
       ${isCustom ? `<input type="text" id="sec-guidance-input-${sec.key}" placeholder="이 섹션에 무엇을 써야 하는지 메모 (선택)" value="${escapeHtml(sec.guidance||'')}" style="width:100%;border:none;background:transparent;font-family:'Times New Roman', '맑은 고딕', serif;font-style:italic;font-size:13px;color:var(--ink-soft);margin:8px 0 16px;padding:0;" />`
         : (sec.guidance ? `<div class="editor-guidance">${escapeHtml(sec.guidance)}</div>` : '')}
-      <div class="editor-area ${isEmpty ? 'is-empty' : ''} ${isKeywordsSection(sec) ? 'compact' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="여기에 ${escapeHtml(sec.label)} 내용을 작성하세요…">${plainTextToEditableHtml(rawContent)}</div>
+      <div class="editor-area ${isEmpty ? 'is-empty' : ''} ${isKeywordsSection(sec) ? 'compact' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="내용을 작성하세요.">${plainTextToEditableHtml(rawContent)}</div>
       <div class="editor-foot">
         <span class="word-count ${overLimit?'over':''}" id="wc-display-${sec.key}">${wc}단어${sec.limit?(' / '+sec.limit):''}</span>
         <span class="save-indicator" id="editor-save-indicator"></span>
