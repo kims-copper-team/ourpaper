@@ -3005,18 +3005,22 @@ async function removeFigure(id){
 /* ============== 그림 자르기(Crop) ============== */
 let cropState = null;
 
+const CROP_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
+const CROP_MIN = 20; // px, 화면 표시 기준 최소 선택 크기
+
 function openFigureCropModal(figureId){
   const fig = (state.figures || []).find(f => f.id === figureId);
   if(!fig) return;
   const root = document.getElementById('modal-root');
+  const handlesHtml = CROP_HANDLES.map(h => `<div class="crop-handle crop-handle-${h}" data-handle="${h}"></div>`).join('');
   root.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this) closeCropModal()">
     <div class="modal crop-modal">
       <div class="modal-head"><h2>그림 자르기</h2><button class="modal-close" onclick="closeCropModal()">✕</button></div>
       <div class="modal-body">
-        <div class="crop-hint">남길 영역을 이미지 위에서 드래그로 선택하세요. 본문에 이미 삽입돼 있다면 적용 즉시 그쪽도 같이 바뀝니다.</div>
+        <div class="crop-hint">기본으로 전체가 선택되어 있어요. 모서리나 가장자리의 점을 끌어서 남길 영역만 줄이세요. 본문에 이미 삽입돼 있다면 적용 즉시 그쪽도 같이 바뀝니다.</div>
         <div class="crop-stage" id="crop-stage">
           <img id="crop-img" src="${figureSrc(fig)}" crossorigin="anonymous" alt="" draggable="false" />
-          <div class="crop-select" id="crop-select" style="display:none;"></div>
+          <div class="crop-select" id="crop-select" style="display:none;">${handlesHtml}</div>
         </div>
         <div class="modal-actions">
           <button class="btn secondary" onclick="closeCropModal()">취소</button>
@@ -3027,51 +3031,90 @@ function openFigureCropModal(figureId){
   </div>`;
 
   const stage = document.getElementById('crop-stage');
+  const img = document.getElementById('crop-img');
+  const sel = document.getElementById('crop-select');
+
+  cropState = {
+    figureId, rect:null, dragMode:null, dragHandle:null,
+    startPointerX:0, startPointerY:0, startRect:null, _cleanup:null
+  };
+
+  function renderSelection(){
+    const r = cropState.rect;
+    if(!r) return;
+    sel.style.display = 'block';
+    sel.style.left = r.x+'px'; sel.style.top = r.y+'px'; sel.style.width = r.w+'px'; sel.style.height = r.h+'px';
+    const btn = document.getElementById('crop-apply-btn');
+    if(btn) btn.disabled = false;
+  }
+  function initSelectionToFull(){
+    cropState.rect = { x:0, y:0, w: stage.clientWidth, h: stage.clientHeight };
+    renderSelection();
+  }
+  if(img.complete && img.naturalWidth) initSelectionToFull();
+  else img.addEventListener('load', initSelectionToFull, { once:true });
 
   function pointerPos(e){
     const r = stage.getBoundingClientRect();
-    return {
-      x: Math.min(Math.max(e.clientX - r.left, 0), r.width),
-      y: Math.min(Math.max(e.clientY - r.top, 0), r.height)
-    };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
-  function updateSelectionRect(x, y, w, h){
-    const sel = document.getElementById('crop-select');
-    if(!sel) return;
-    const ok = w > 4 && h > 4;
-    sel.style.display = ok ? 'block' : 'none';
-    sel.style.left = x+'px'; sel.style.top = y+'px'; sel.style.width = w+'px'; sel.style.height = h+'px';
-    cropState.rect = ok ? { x, y, w, h } : null;
-    const btn = document.getElementById('crop-apply-btn');
-    if(btn) btn.disabled = !cropState.rect;
+  function clampRect(rect){
+    const stageW = stage.clientWidth, stageH = stage.clientHeight;
+    let { x, y, w, h } = rect;
+    if(w < CROP_MIN) w = CROP_MIN;
+    if(h < CROP_MIN) h = CROP_MIN;
+    x = Math.min(Math.max(x, 0), stageW - w);
+    y = Math.min(Math.max(y, 0), stageH - h);
+    w = Math.min(w, stageW - x);
+    h = Math.min(h, stageH - y);
+    return { x, y, w, h };
   }
-  const onMouseDown = (e) => {
-    e.preventDefault();
+
+  const onHandleDown = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    cropState.dragMode = 'resize';
+    cropState.dragHandle = e.currentTarget.dataset.handle;
     const p = pointerPos(e);
-    cropState.dragging = true;
-    cropState.startX = p.x; cropState.startY = p.y;
-    updateSelectionRect(p.x, p.y, 0, 0);
+    cropState.startPointerX = p.x; cropState.startPointerY = p.y;
+    cropState.startRect = { ...cropState.rect };
+  };
+  const onSelectDown = (e) => {
+    if(e.target.closest('.crop-handle')) return; // 핸들 클릭은 onHandleDown이 처리
+    e.preventDefault();
+    cropState.dragMode = 'move';
+    const p = pointerPos(e);
+    cropState.startPointerX = p.x; cropState.startPointerY = p.y;
+    cropState.startRect = { ...cropState.rect };
   };
   const onMouseMove = (e) => {
-    if(!cropState || !cropState.dragging) return;
+    if(!cropState || !cropState.dragMode) return;
     const p = pointerPos(e);
-    updateSelectionRect(
-      Math.min(p.x, cropState.startX), Math.min(p.y, cropState.startY),
-      Math.abs(p.x - cropState.startX), Math.abs(p.y - cropState.startY)
-    );
+    const dx = p.x - cropState.startPointerX;
+    const dy = p.y - cropState.startPointerY;
+    const s = cropState.startRect;
+    let next = { ...s };
+    if(cropState.dragMode === 'move'){
+      next.x = s.x + dx; next.y = s.y + dy;
+    } else {
+      const h = cropState.dragHandle;
+      if(h.includes('e')) next.w = s.w + dx;
+      if(h.includes('s')) next.h = s.h + dy;
+      if(h.includes('w')){ next.x = s.x + dx; next.w = s.w - dx; }
+      if(h.includes('n')){ next.y = s.y + dy; next.h = s.h - dy; }
+    }
+    cropState.rect = clampRect(next);
+    renderSelection();
   };
-  const onMouseUp = () => { if(cropState) cropState.dragging = false; };
+  const onMouseUp = () => { if(cropState) cropState.dragMode = null; };
 
-  stage.addEventListener('mousedown', onMouseDown);
+  sel.querySelectorAll('.crop-handle').forEach(h => h.addEventListener('mousedown', onHandleDown));
+  sel.addEventListener('mousedown', onSelectDown);
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onMouseUp);
 
-  cropState = {
-    figureId, dragging:false, startX:0, startY:0, rect:null,
-    _cleanup: () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    }
+  cropState._cleanup = () => {
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
   };
 }
 
