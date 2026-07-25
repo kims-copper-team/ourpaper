@@ -2333,7 +2333,7 @@ async function createHighlightRow(projectId, sectionKey, quoteText){
   }).select('id,section_key,user_id,quote_text,note,created_at,resolved_at,resolved_by').single();
   if(error) return { highlight:null, error };
   const profile = state.currentUser && state.currentUser.profile;
-  return { highlight: mapHighlightRow(Object.assign({}, data, { profiles: profile })), error:null };
+  return { highlight: mapHighlightRow(Object.assign({}, data, { author: profile })), error:null };
 }
 
 async function updateHighlightNoteRow(id, note){
