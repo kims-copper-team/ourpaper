@@ -3137,6 +3137,17 @@ async function applyFigureCrop(){
   }
   if(btn){ btn.disabled = true; btn.textContent = '자르는 중…'; }
 
+  // 모달 위에 로딩 오버레이 표시
+  const modalBox = document.querySelector('.crop-modal');
+  let overlay = null;
+  if(modalBox){
+    overlay = document.createElement('div');
+    overlay.className = 'crop-loading-overlay';
+    overlay.innerHTML = '<div class="crop-spinner"></div><span>이미지 업로드 중…</span>';
+    modalBox.appendChild(overlay);
+  }
+  const hideOverlay = () => { if(overlay) overlay.remove(); };
+
   const scaleX = img.naturalWidth / img.clientWidth;
   const scaleY = img.naturalHeight / img.clientHeight;
   const sx = Math.round(rect.x * scaleX);
@@ -3151,12 +3162,14 @@ async function applyFigureCrop(){
 
   canvas.toBlob(async (blob) => {
     if(!blob){
+      hideOverlay();
       showToast('자르기에 실패했어요');
       if(btn){ btn.disabled = false; btn.textContent = '자르기 적용'; }
       return;
     }
     const { error: uploadError } = await window.sb.storage.from('figures').upload(fig.storagePath, blob, { contentType:'image/png', upsert:true });
     if(uploadError){
+      hideOverlay();
       showToast('자르기 적용에 실패했어요: ' + (uploadError.message || '다시 시도해주세요'));
       if(btn){ btn.disabled = false; btn.textContent = '자르기 적용'; }
       return;
@@ -3173,6 +3186,7 @@ async function applyFigureCrop(){
     if(project && syncEmbeddedFigureImage(project, figureId, newUrl)){
       await setProject(project);
     }
+    hideOverlay();
     closeCropModal();
     showToast('그림을 잘랐어요');
     const proj2 = await getProject(state.currentProjectId);
