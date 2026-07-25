@@ -348,6 +348,16 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   padding:2px 4px; transition:opacity .15s; flex-shrink:0;
 }
 .ic-row:hover .ic-delete-btn{ opacity:1; }
+.ic-actions{ display:flex; gap:3px; align-items:center; opacity:0; transition:opacity .15s; flex-shrink:0; }
+.ic-row:hover .ic-actions{ opacity:1; }
+.ic-resolve-btn{
+  background:none; border:1px solid var(--line-strong); border-radius:4px; color:var(--ink-faint);
+  cursor:pointer; font-size:10px; padding:1px 5px; line-height:1.4;
+}
+.ic-resolve-btn:hover{ color:var(--stamp-green); border-color:var(--stamp-green); }
+.ic-resolve-btn.ic-resolved{ color:var(--stamp-green); border-color:var(--stamp-green); background:var(--stamp-green-bg,#e8f5e9); }
+.ic-row-resolved .ic-text{ color:var(--ink-faint); text-decoration:line-through; }
+.ic-resolved-badge{ font-size:10px; color:var(--stamp-green); font-weight:600; white-space:nowrap; }
 .ic-input-row{ display:flex; gap:6px; align-items:center; margin-top:4px; }
 .ic-input{
   flex:1; border:1px solid var(--line-strong); border-radius:var(--radius);

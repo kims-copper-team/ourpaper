@@ -2539,6 +2539,25 @@ async function jumpToHighlight(id){
   openHighlightPopover(id, mark);
 }
 
+function _itemTypeLabel(itemType, itemId, project){
+  if(itemType === 'figure'){
+    const fig = (state.figures||[]).find(f => f.id === itemId);
+    const num = fig ? ((state.figureOrder||[]).indexOf(fig.id)+1) : '?';
+    return `그림 ${num}${fig && fig.caption ? ' · '+fig.caption.slice(0,20)+(fig.caption.length>20?'…':'') : ''}`;
+  }
+  if(itemType === 'table'){
+    const tbl = (state.tables||[]).find(t => t.id === itemId);
+    const num = tbl ? ((state.tables||[]).indexOf(tbl)+1) : '?';
+    return `표 ${num}${tbl && tbl.caption ? ' · '+tbl.caption.slice(0,20)+(tbl.caption.length>20?'…':'') : ''}`;
+  }
+  if(itemType === 'reference'){
+    const ref = (state.references||[]).find(r => r.id === itemId);
+    const num = ref ? ((state.references||[]).indexOf(ref)+1) : '?';
+    return `참고문헌 [${num}]${ref && ref.text ? ' · '+ref.text.slice(0,20)+(ref.text.length>20?'…':'') : ''}`;
+  }
+  return itemType;
+}
+
 function renderCommentsManager(project, filter){
   const pane = document.getElementById('editor-pane');
   if(!filter) filter = state.commentFilter || 'open';
@@ -2556,15 +2575,18 @@ function renderCommentsManager(project, filter){
   }
 
   state.commentFilter = filter;
-  const all = state.highlights || [];
+  const allHighlights = state.highlights || [];
+  const allItemComments = state.itemComments || [];
   const secs = getSections(project);
   const labelFor = (key) => (secs.find(s => s.key === key) || {}).label || key;
-  const openCount = all.filter(h => !h.resolvedAt).length;
-  const resolvedCount = all.filter(h => !!h.resolvedAt).length;
-  const list = filter === 'resolved' ? all.filter(h => !!h.resolvedAt) : all.filter(h => !h.resolvedAt);
   const myId = state.currentUser && state.currentUser.id;
 
-  const cards = list.map(h => {
+  const totalOpen = allHighlights.filter(h => !h.resolvedAt).length + allItemComments.filter(c => !c.resolvedAt).length;
+  const totalResolved = allHighlights.filter(h => !!h.resolvedAt).length + allItemComments.filter(c => !!c.resolvedAt).length;
+
+  // highlight cards
+  const hlList = filter === 'resolved' ? allHighlights.filter(h => !!h.resolvedAt) : allHighlights.filter(h => !h.resolvedAt);
+  const hlCards = hlList.map(h => {
     const color = colorForUser(h.userId);
     const isMine = h.userId === myId;
     const isResolved = !!h.resolvedAt;
@@ -2573,8 +2595,7 @@ function renderCommentsManager(project, filter){
     const resolveBtn = isResolved
       ? `<button class="btn secondary small" onclick="unresolveHighlight('${h.id}')">해결 취소</button>`
       : `<button class="btn secondary small" style="color:var(--stamp-green);border-color:var(--stamp-green);" onclick="resolveHighlight('${h.id}')">✓ 해결</button>`;
-    const deleteBtn = isMine
-      ? `<button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>` : '';
+    const deleteBtn = isMine ? `<button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>` : '';
     return `
     <div class="ref-card${isResolved ? ' hl-card-resolved' : ''}">
       <div class="ref-num-badge" style="background:${color}22;color:${color};border-color:${color};">✎</div>
@@ -2587,22 +2608,60 @@ function renderCommentsManager(project, filter){
             ${deleteBtn}
           </div>
         </div>
-        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;margin:4px 0;">${escapeHtml(labelFor(h.sectionKey))} · ${fmtDate(h.createdAt)}</div>
+        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;margin:4px 0;">본문 · ${escapeHtml(labelFor(h.sectionKey))} · ${fmtDate(h.createdAt)}</div>
         <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:13.5px;color:${isResolved?'var(--ink-faint)':'var(--ink)'};border-left:3px solid ${color};padding-left:8px;margin-bottom:${h.note?'6px':'0'};">${escapeHtml(h.quoteText)}</div>
         ${h.note ? `<div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;white-space:pre-wrap;">${escapeHtml(h.note)}</div>` : ''}
         ${resolvedInfo}
       </div>
     </div>`;
-  }).join('');
+  });
+
+  // item comment cards
+  const icList = filter === 'resolved' ? allItemComments.filter(c => !!c.resolvedAt) : allItemComments.filter(c => !c.resolvedAt);
+  const icCards = icList.map(c => {
+    const color = colorForUser(c.userId);
+    const isMine = c.userId === myId;
+    const isResolved = !!c.resolvedAt;
+    const resolvedInfo = isResolved
+      ? `<div class="hl-resolved-badge" style="margin:4px 0 0;">✓ 해결됨 · <span>${escapeHtml(c.resolvedByName || '누군가')}</span></div>` : '';
+    const resolveBtn = isResolved
+      ? `<button class="btn secondary small" onclick="unresolveItemComment('${c.id}','${c.itemType}','${c.itemId}')">해결 취소</button>`
+      : `<button class="btn secondary small" style="color:var(--stamp-green);border-color:var(--stamp-green);" onclick="resolveItemComment('${c.id}','${c.itemType}','${c.itemId}')">✓ 해결</button>`;
+    const deleteBtn = isMine ? `<button class="btn danger small" onclick="deleteItemComment('${c.id}','${c.itemType}','${c.itemId}')">삭제</button>` : '';
+    const typeIconMap = { figure:'🖼', table:'📊', reference:'📚' };
+    const typeIcon = typeIconMap[c.itemType] || '💬';
+    return `
+    <div class="ref-card${isResolved ? ' hl-card-resolved' : ''}">
+      <div class="ref-num-badge" style="background:${color}22;color:${color};border-color:${color};">${typeIcon}</div>
+      <div class="ref-body">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-weight:600;font-size:12.5px;color:${color};">${escapeHtml(c.displayName || c.email || '알 수 없음')}</span>
+          <div style="display:flex;gap:4px;">
+            ${resolveBtn}
+            ${deleteBtn}
+          </div>
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;margin:4px 0;">${escapeHtml(_itemTypeLabel(c.itemType, c.itemId, project))} · ${fmtDate(c.createdAt)}</div>
+        <div style="font-size:13px;color:${isResolved?'var(--ink-faint)':'var(--ink)'};border-left:3px solid ${color};padding-left:8px;white-space:pre-wrap;word-break:break-word;">${escapeHtml(c.content)}</div>
+        ${resolvedInfo}
+      </div>
+    </div>`;
+  });
+
+  // merge & sort by createdAt
+  const allCards = [
+    ...hlList.map((h,i) => ({ t: h.createdAt, html: hlCards[i] })),
+    ...icList.map((c,i) => ({ t: c.createdAt, html: icCards[i] }))
+  ].sort((a,b) => a.t - b.t).map(x => x.html);
 
   pane.innerHTML = `
-    <div class="editor-head"><h2>댓글</h2><span class="section-limit">${all.length}개</span></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">본문에서 문구를 드래그해 선택하면 "🖍 하이라이트" 버튼이 나타나요. 댓글 색은 작성자마다 달라지며, 작성자 본인만 댓글을 삭제할 수 있어요.</div>
+    <div class="editor-head"><h2>댓글</h2><span class="section-limit">${totalOpen+totalResolved}개</span></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">본문에서 문구를 드래그해 선택하면 "🖍 하이라이트" 버튼이 나타나요. 그림·표·참고문헌 카드의 팀 댓글도 여기에 모여요.</div>
     <div style="display:flex;gap:6px;margin-bottom:12px;">
-      <button class="btn${filter==='open'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'open')">미해결 (${openCount})</button>
-      <button class="btn${filter==='resolved'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'resolved')">해결됨 (${resolvedCount})</button>
+      <button class="btn${filter==='open'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'open')">미해결 (${totalOpen})</button>
+      <button class="btn${filter==='resolved'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'resolved')">해결됨 (${totalResolved})</button>
     </div>
-    <div class="fig-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">${filter==='resolved'?'해결된 댓글이 없습니다':'미해결 댓글이 없습니다'}</div>`}</div>
+    <div class="fig-list">${allCards.join('') || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">${filter==='resolved'?'해결된 댓글이 없습니다':'미해결 댓글이 없습니다'}</div>`}</div>
   `;
 }
 
@@ -2689,14 +2748,17 @@ function mapItemCommentRow(row){
     userId: row.user_id, content: row.content,
     createdAt: new Date(row.created_at).getTime(),
     displayName: row.profiles ? row.profiles.display_name : '',
-    email: row.profiles ? row.profiles.email : ''
+    email: row.profiles ? row.profiles.email : '',
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).getTime() : null,
+    resolvedBy: row.resolved_by || null,
+    resolvedByName: row.resolver ? row.resolver.display_name : null
   };
 }
 
 async function listItemComments(projectId){
   for(let i=0; i<3; i++){
     const { data, error } = await window.sb.from('item_comments')
-      .select('id,project_id,item_type,item_id,user_id,content,created_at,profiles(display_name,email)')
+      .select('id,project_id,item_type,item_id,user_id,content,created_at,resolved_at,resolved_by,profiles:user_id(display_name,email),resolver:resolved_by(display_name)')
       .eq('project_id', projectId)
       .order('created_at', { ascending:true });
     if(!error) return { itemComments: (data||[]).map(mapItemCommentRow) };
@@ -2723,25 +2785,72 @@ async function deleteItemCommentRow(id){
   return true;
 }
 
+async function resolveItemCommentRow(id){
+  const session = await getSession();
+  if(!session) return null;
+  const now = new Date().toISOString();
+  const { data, error } = await window.sb.from('item_comments')
+    .update({ resolved_at: now, resolved_by: session.user.id })
+    .eq('id', id)
+    .select('resolved_at,resolved_by,resolver:resolved_by(display_name)').single();
+  if(error){ console.error('해결 처리 실패:', error); return null; }
+  return { resolvedAt: new Date(data.resolved_at).getTime(), resolvedBy: data.resolved_by, resolvedByName: data.resolver ? data.resolver.display_name : null };
+}
+
+async function unresolveItemCommentRow(id){
+  const { error } = await window.sb.from('item_comments')
+    .update({ resolved_at: null, resolved_by: null }).eq('id', id);
+  if(error){ console.error('해결 취소 실패:', error); return false; }
+  return true;
+}
+
+async function resolveItemComment(id, itemType, itemId){
+  const result = await resolveItemCommentRow(id);
+  if(!result){ showToast('해결 처리에 실패했어요'); return; }
+  const c = (state.itemComments||[]).find(x => x.id === id);
+  if(c){ Object.assign(c, result); }
+  refreshItemThread(itemType, itemId);
+  if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
+  broadcastItemCommentEvent('resolve', { id, itemType, itemId, ...result });
+}
+
+async function unresolveItemComment(id, itemType, itemId){
+  const ok = await unresolveItemCommentRow(id);
+  if(!ok){ showToast('해결 취소에 실패했어요'); return; }
+  const c = (state.itemComments||[]).find(x => x.id === id);
+  if(c){ c.resolvedAt = null; c.resolvedBy = null; c.resolvedByName = null; }
+  refreshItemThread(itemType, itemId);
+  if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
+  broadcastItemCommentEvent('unresolve', { id, itemType, itemId });
+}
+
 function itemCommentsFor(itemType, itemId){
   return (state.itemComments || []).filter(c => c.itemType === itemType && c.itemId === itemId);
+}
+
+function _icRowHtml(c, itemType, itemId, myId){
+  const color = colorForUser(c.userId);
+  const isMine = c.userId === myId;
+  const isResolved = !!c.resolvedAt;
+  const resolveBtn = isResolved
+    ? `<button class="ic-resolve-btn ic-resolved" title="해결 취소" onclick="unresolveItemComment('${c.id}','${itemType}','${itemId}')">✓</button>`
+    : `<button class="ic-resolve-btn" title="해결로 표시" onclick="resolveItemComment('${c.id}','${itemType}','${itemId}')">✓</button>`;
+  const deleteBtn = isMine ? `<button class="ic-delete-btn" title="삭제" onclick="deleteItemComment('${c.id}','${itemType}','${itemId}')">✕</button>` : '';
+  const resolvedBadge = isResolved ? `<span class="ic-resolved-badge">해결됨 · ${escapeHtml(c.resolvedByName||'누군가')}</span>` : '';
+  return `<div class="ic-row${isResolved?' ic-row-resolved':''}" data-ic-id="${c.id}">
+    <span class="ic-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(((c.displayName||c.email||'?').trim()[0]||'?').toUpperCase())}</span>
+    <div class="ic-body">
+      <div class="ic-meta"><span class="ic-author" style="color:${color};">${escapeHtml(c.displayName||c.email||'알 수 없음')}</span><span class="ic-date">${fmtDate(c.createdAt)}</span>${resolvedBadge}</div>
+      <div class="ic-text">${escapeHtml(c.content)}</div>
+    </div>
+    <div class="ic-actions">${resolveBtn}${deleteBtn}</div>
+  </div>`;
 }
 
 function renderItemThreadHtml(itemType, itemId){
   const comments = itemCommentsFor(itemType, itemId);
   const myId = state.currentUser && state.currentUser.id;
-  const rows = comments.map(c => {
-    const color = colorForUser(c.userId);
-    const isMine = c.userId === myId;
-    return `<div class="ic-row" data-ic-id="${c.id}">
-      <span class="ic-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(((c.displayName||c.email||'?').trim()[0]||'?').toUpperCase())}</span>
-      <div class="ic-body">
-        <div class="ic-meta"><span class="ic-author" style="color:${color};">${escapeHtml(c.displayName||c.email||'알 수 없음')}</span><span class="ic-date">${fmtDate(c.createdAt)}</span></div>
-        <div class="ic-text">${escapeHtml(c.content)}</div>
-      </div>
-      ${isMine ? `<button class="ic-delete-btn" title="삭제" onclick="deleteItemComment('${c.id}','${itemType}','${itemId}')">✕</button>` : ''}
-    </div>`;
-  }).join('');
+  const rows = comments.map(c => _icRowHtml(c, itemType, itemId, myId)).join('');
   return `<div class="ic-thread" id="ic-thread-${itemType}-${itemId}">${rows || '<div class="ic-empty">아직 댓글이 없어요</div>'}</div>
     <div class="ic-input-row">
       <input type="text" class="ic-input" id="ic-input-${itemType}-${itemId}" placeholder="댓글 남기기…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitItemComment('${itemType}','${itemId}');}"/>
@@ -2760,6 +2869,7 @@ async function submitItemComment(itemType, itemId){
   state.itemComments = state.itemComments || [];
   state.itemComments.push(comment);
   refreshItemThread(itemType, itemId);
+  if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
   broadcastItemCommentEvent('create', comment);
 }
 
@@ -2768,6 +2878,7 @@ async function deleteItemComment(id, itemType, itemId){
   if(!ok){ showToast('댓글 삭제에 실패했어요'); return; }
   state.itemComments = (state.itemComments || []).filter(c => c.id !== id);
   refreshItemThread(itemType, itemId);
+  if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
   broadcastItemCommentEvent('delete', { id, itemType, itemId });
 }
 
@@ -2776,18 +2887,7 @@ function refreshItemThread(itemType, itemId){
   if(!el) return;
   const comments = itemCommentsFor(itemType, itemId);
   const myId = state.currentUser && state.currentUser.id;
-  el.innerHTML = comments.map(c => {
-    const color = colorForUser(c.userId);
-    const isMine = c.userId === myId;
-    return `<div class="ic-row" data-ic-id="${c.id}">
-      <span class="ic-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(((c.displayName||c.email||'?').trim()[0]||'?').toUpperCase())}</span>
-      <div class="ic-body">
-        <div class="ic-meta"><span class="ic-author" style="color:${color};">${escapeHtml(c.displayName||c.email||'알 수 없음')}</span><span class="ic-date">${fmtDate(c.createdAt)}</span></div>
-        <div class="ic-text">${escapeHtml(c.content)}</div>
-      </div>
-      ${isMine ? `<button class="ic-delete-btn" title="삭제" onclick="deleteItemComment('${c.id}','${itemType}','${itemId}')">✕</button>` : ''}
-    </div>`;
-  }).join('') || '<div class="ic-empty">아직 댓글이 없어요</div>';
+  el.innerHTML = comments.map(c => _icRowHtml(c, itemType, itemId, myId)).join('') || '<div class="ic-empty">아직 댓글이 없어요</div>';
 }
 
 function broadcastItemCommentEvent(action, comment){
@@ -2808,7 +2908,16 @@ function handleRemoteItemCommentEvent(payload){
   } else if(action === 'delete'){
     state.itemComments = state.itemComments.filter(c => c.id !== comment.id);
     refreshItemThread(comment.itemType, comment.itemId);
+  } else if(action === 'resolve' || action === 'unresolve'){
+    const c = state.itemComments.find(x => x.id === comment.id);
+    if(c){
+      c.resolvedAt = comment.resolvedAt || null;
+      c.resolvedBy = comment.resolvedBy || null;
+      c.resolvedByName = comment.resolvedByName || null;
+      refreshItemThread(c.itemType, c.itemId);
+    }
   }
+  if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
 }
 
 /* ============== REF LEDGER (참고문헌 관리) ============== */
