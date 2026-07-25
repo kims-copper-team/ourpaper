@@ -1177,7 +1177,7 @@ function buildFigureInsertPanel(){
       <button class="insert-item" onclick="pickFigureInsert(${i})">
         <span class="insert-thumb"><img src="${figureSrc(f)}" alt=""></span>
         <span class="insert-text">
-          <div class="insert-primary">Fig. ${project ? figureNumberById(project, figures, f.id) : i+1}${project && !isFigureEmbedded(project, f.id) ? ' (미삽입)' : ''}</div>
+          <div class="insert-primary">${project && isFigureEmbedded(project, f.id) ? 'Fig. '+figureNumberById(project, figures, f.id) : 'Fig. — (미삽입)'}</div>
           <div class="insert-secondary">${escapeHtml(f.caption || f.fileName)}</div>
         </span>
       </button>
@@ -1189,7 +1189,10 @@ function buildFigureInsertPanel(){
 function setFigInsertMode(mode){
   state.figInsertMode = mode;
   const panel = document.getElementById('inline-insert-picker');
-  if(panel) panel.innerHTML = buildFigureInsertPanel();
+  if(panel){
+    const closeBtn = `<div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>`;
+    panel.innerHTML = closeBtn + buildFigureInsertPanel();
+  }
 }
 
 function buildRefInsertItemsHtml(){
@@ -1234,7 +1237,23 @@ function submitRefInsertPick(){
   if(!checked.length) return;
   const nums = checked.map(el => parseInt(el.value,10)+1);
   insertContentAtCursor(escapeHtml(`[${compressRefNumbers(nums)}]`));
+  // 인접/중첩 인용 괄호 자동 정리
+  const el = state.activeTextareaId && document.getElementById(state.activeTextareaId);
+  if(el){
+    const cleaned = cleanupCitationsInHtml(el.innerHTML);
+    if(cleaned !== el.innerHTML){
+      el.innerHTML = cleaned;
+      const sk = state.activeTextareaId.replace('sec-content-input-', '');
+      if(state.openProject) state.openProject.content[sk] = cleaned;
+    }
+  }
   closeInsertPicker();
+}
+
+function _pickerOutsideClick(e){
+  const p = document.getElementById('inline-insert-picker');
+  if(!p){ document.removeEventListener('mousedown', _pickerOutsideClick); return; }
+  if(!p.contains(e.target)){ closeInsertPicker(); document.removeEventListener('mousedown', _pickerOutsideClick); }
 }
 
 function toggleInsertPicker(kind, sectionKey){
@@ -1262,19 +1281,22 @@ function toggleInsertPicker(kind, sectionKey){
   panel.className = 'inline-insert-picker';
   panel.dataset.kind = kind;
   if(sectionKey) panel.dataset.sectionKey = sectionKey;
-  panel.innerHTML = kind === 'figures' ? buildFigureInsertPanel() : kind === 'tables' ? buildTableInsertPanel() : buildRefInsertItemsHtml();
+  const closeBtn = `<div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>`;
+  panel.innerHTML = closeBtn + (kind === 'figures' ? buildFigureInsertPanel() : kind === 'tables' ? buildTableInsertPanel() : buildRefInsertItemsHtml());
   head.insertAdjacentElement('afterend', panel);
+  setTimeout(() => document.addEventListener('mousedown', _pickerOutsideClick), 0);
 }
 
 function closeInsertPicker(){
   const existing = document.getElementById('inline-insert-picker');
   if(existing) existing.remove();
-  // picker 닫히면 커서 툴바 다시 표시
+  document.removeEventListener('mousedown', _pickerOutsideClick);
   setTimeout(_onSelectionChange, 50);
 }
 
 /* ---- 커서 플로팅 삽입 툴바 ---- */
 let _ctbListenerAdded = false;
+let _presenceLastKey = null, _presenceLastAt = 0; // selectionchange 기반 presence throttle
 
 function initCursorToolbar(){
   if(!document.getElementById('cursor-toolbar')){
@@ -1334,6 +1356,13 @@ function _onSelectionChange(){
   if(document.getElementById('inline-insert-picker')){
     tb.classList.remove('ctb-visible');
     return;
+  }
+
+  // 커서가 이동할 때마다 presence 업데이트 (3초 throttle)
+  const secKey = editorEl.id ? editorEl.id.replace('sec-content-input-', '') : null;
+  if(secKey && (secKey !== _presenceLastKey || Date.now() - _presenceLastAt > 3000)){
+    _presenceLastKey = secKey; _presenceLastAt = Date.now();
+    updateMyPresenceSection(secKey);
   }
 
   const rect = range.getBoundingClientRect();
@@ -1416,7 +1445,8 @@ async function pickFigureInsert(index){
       }
     }
   } else {
-    const num = project ? figureNumberById(project, figures, f.id) : index+1;
+    const num = project ? figureNumberById(project, figures, f.id) : null;
+    if(num == null){ showToast('먼저 그림을 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
     insertContentAtCursor(escapeHtml(`Fig. ${num}`));
     closeInsertPicker();
   }
@@ -1435,15 +1465,20 @@ function buildTableInsertPanel(){
   } else if(tables.length === 0){
     itemsHtml = `<div class="insert-popover-empty">아직 만든 표가 없어요.<br>Table Ledger에서 먼저 추가해보세요.</div>`;
   } else {
-    itemsHtml = tables.map((t,i) => `
-      <button class="insert-item" onclick="pickTableInsert(${i})">
-        <span class="insert-num">T${i+1}</span>
-        <span class="insert-text">
-          <div class="insert-primary">Table ${i+1}</div>
-          <div class="insert-secondary">${escapeHtml(t.caption || '(캡션 미작성)')}</div>
-        </span>
-      </button>
-    `).join('');
+    const project = state.openProject;
+    itemsHtml = tables.map((t,i) => {
+      const num = project ? tableNumberById(project, tables, t.id) : null;
+      const label = num != null ? `Table ${num}` : 'Table — (미삽입)';
+      return `
+        <button class="insert-item" onclick="pickTableInsert(${i})">
+          <span class="insert-num">${num != null ? 'T'+num : '—'}</span>
+          <span class="insert-text">
+            <div class="insert-primary">${label}</div>
+            <div class="insert-secondary">${escapeHtml(t.caption || '(캡션 미작성)')}</div>
+          </span>
+        </button>
+      `;
+    }).join('');
   }
   return tabs + itemsHtml;
 }
@@ -1451,7 +1486,10 @@ function buildTableInsertPanel(){
 function setTableInsertMode(mode){
   state.tableInsertMode = mode;
   const panel = document.getElementById('inline-insert-picker');
-  if(panel) panel.innerHTML = buildTableInsertPanel();
+  if(panel){
+    const closeBtn = `<div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>`;
+    panel.innerHTML = closeBtn + buildTableInsertPanel();
+  }
 }
 
 function buildInlineTableHtml(t, num){
@@ -1466,17 +1504,33 @@ function buildInlineTableHtml(t, num){
     `</div><div><br></div>`;
 }
 
-function pickTableInsert(index){
+async function pickTableInsert(index){
   const tables = state.tables || [];
   const t = tables[index];
   if(!t) return;
   const mode = state.tableInsertMode || 'embed';
+  const project = state.openProject;
   if(mode === 'embed'){
-    insertContentAtCursor(buildInlineTableHtml(t, index+1));
+    const beforeOrder = project ? computeTableOrder(project, tables) : [];
+    // 삽입 후 위치가 정해지므로 임시 번호로 넣고 바로 재계산
+    const tentativeNum = beforeOrder.length + 1;
+    insertContentAtCursor(buildInlineTableHtml(t, tentativeNum));
+    closeInsertPicker();
+    if(project){
+      const num = tableNumberById(project, tables, t.id);
+      let changed = syncEmbeddedTableCaption(project, t.id, num != null ? num : tentativeNum, t.caption);
+      if(resyncTableNumbering(beforeOrder, project, tables)) changed = true;
+      if(changed){
+        await setProject(project);
+        renderWorkspace(project);
+      }
+    }
   } else {
-    insertContentAtCursor(escapeHtml(`Table ${index+1}`));
+    const num = project ? tableNumberById(project, tables, t.id) : null;
+    if(num == null){ showToast('먼저 표를 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
+    insertContentAtCursor(escapeHtml(`Table ${num}`));
+    closeInsertPicker();
   }
-  closeInsertPicker();
 }
 
 /* ============== 순서 변경 시 본문 번호 자동 갱신 ============== */
@@ -1519,6 +1573,27 @@ function renumberTokensInProject(project, mapping, buildMatcher, renderToken){
 
 function refTokenMatcher(n){ return new RegExp('\\[' + n + '\\]', 'g'); }
 function refTokenRender(n){ return `[${n}]`; }
+
+// 인용 괄호 정리: 중첩된 [1,[2],3] → [1-3], 인접한 [1,3][2] → [1-3]
+function cleanupCitationsInHtml(html){
+  if(!html) return html;
+  // 1단계: 중첩 괄호 [a,[b],c] → [a,b,c] (커서가 기존 괄호 안에 있을 때 삽입하면 발생)
+  html = html.replace(/\[([^\[\]]*)\[([^\[\]]*)\]([^\[\]]*)\]/g, (_, pre, inner, post) => {
+    const nums = expandRefNumbers([pre, inner, post].join(','));
+    return nums.length ? '[' + compressRefNumbers(nums) + ']' : _;
+  });
+  // 2단계: 인접 괄호 반복 병합 [1,3][2] → [1-3]
+  let prev;
+  do {
+    prev = html;
+    html = html.replace(/\[([^\[\]]+)\](\s*)\[([^\[\]]+)\]/g, (_, a, sp, b) => {
+      const numsA = expandRefNumbers(a), numsB = expandRefNumbers(b);
+      if(!numsA.length || !numsB.length) return _;
+      return '[' + compressRefNumbers([...numsA, ...numsB]) + ']';
+    });
+  } while(html !== prev);
+  return html;
+}
 
 // 인용 번호 여러 개를 논문 스타일로 압축: [1,2,3] -> "1-3", [2,5,6,7] -> "2,5-7"
 function compressRefNumbers(nums){
@@ -1605,12 +1680,58 @@ function computeFigureOrder(project, figures){
   return ordered;
 }
 function figureNumberById(project, figures, id){
+  if(!isFigureEmbedded(project, id)) return null; // 본문 미삽입 → 번호 없음
   const order = computeFigureOrder(project, figures);
   const idx = order.indexOf(id);
-  return idx === -1 ? order.length + 1 : idx + 1;
+  return idx === -1 ? null : idx + 1;
 }
 function isFigureEmbedded(project, id){
   return getSections(project).some(sec => !isReferencesSection(sec) && !isFreeSection(sec) && (project.content[sec.key]||'').includes(`data-fig-id="${id}"`));
+}
+
+// 표 번호도 그림과 동일하게 본문 등장 순서로 계산
+function computeTableOrder(project, tables){
+  const knownIds = new Set((tables||[]).map(t => t.id));
+  const seen = new Set();
+  const ordered = [];
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec) || isFreeSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw) return;
+    const re = /data-table-id="([^"]+)"/g;
+    let m;
+    while((m = re.exec(raw))){
+      const id = m[1];
+      if(knownIds.has(id) && !seen.has(id)){ seen.add(id); ordered.push(id); }
+    }
+  });
+  return ordered;
+}
+function isTableEmbedded(project, id){
+  return getSections(project).some(sec => !isReferencesSection(sec) && !isFreeSection(sec) && (project.content[sec.key]||'').includes(`data-table-id="${id}"`));
+}
+function tableNumberById(project, tables, id){
+  if(!isTableEmbedded(project, id)) return null;
+  const order = computeTableOrder(project, tables);
+  const idx = order.indexOf(id);
+  return idx === -1 ? null : idx + 1;
+}
+function resyncTableNumbering(beforeBodyOrder, project, tables){
+  const afterBodyOrder = computeTableOrder(project, tables);
+  // 순서가 바뀐 항목만 매핑하여 본문 텍스트 토큰 갱신
+  const mapping = [];
+  beforeBodyOrder.forEach((id, i) => {
+    const oldNum = i + 1;
+    const newIdx = afterBodyOrder.indexOf(id);
+    if(newIdx !== -1 && (newIdx + 1) !== oldNum) mapping.push({ oldNum, newNum: newIdx + 1 });
+  });
+  let changed = mapping.length ? renumberTokensInProject(project, mapping, tableTokenMatcher, tableTokenRender) : false;
+  // 본문 삽입된 모든 표 캡션을 body-order 번호로 동기화
+  afterBodyOrder.forEach((id, i) => {
+    const t = (tables||[]).find(tb => tb.id === id);
+    if(t && syncEmbeddedTableCaption(project, id, i + 1, t.caption)) changed = true;
+  });
+  return changed;
 }
 
 // 그림 삽입/삭제로 본문상 순서가 바뀔 수 있는 동작 전에 beforeOrder를 찍어두고,
@@ -1929,7 +2050,8 @@ function renderTableManager(project){
       scheduleTableSave();
       getProject(state.currentProjectId).then(project => {
         if(!project) return;
-        const changed = syncEmbeddedTableCaption(project, tableId, idx+1, e.target.value);
+        const num = tableNumberById(project, state.tables || [], tableId);
+        const changed = num != null && syncEmbeddedTableCaption(project, tableId, num, e.target.value);
         if(changed) setProject(project);
       });
     });
@@ -2044,15 +2166,9 @@ async function moveTable(id, dir){
   const newIds = tables.map(t => t.id);
   const ok = await setTables(state.currentProjectId, tables);
   if(!ok) showToast('순서 저장에 실패했어요');
+  // 표 번호는 body-order 기준이므로 ledger 순서 변경은 본문 번호에 영향 없음
   const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, tableTokenMatcher, tableTokenRender);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 표 번호를 새 순서에 맞게 업데이트했어요');
-  }
-  renderWorkspace(project);
+  if(project) renderWorkspace(project);
 }
 
 async function reorderTables(srcId, targetId){
@@ -2060,21 +2176,12 @@ async function reorderTables(srcId, targetId){
   const srcIdx = tables.findIndex(t => t.id === srcId);
   const targetIdx = tables.findIndex(t => t.id === targetId);
   if(srcIdx === -1 || targetIdx === -1 || srcIdx === targetIdx) return;
-  const oldIds = tables.map(t => t.id);
   const [moved] = tables.splice(srcIdx, 1);
   tables.splice(targetIdx, 0, moved);
-  const newIds = tables.map(t => t.id);
   const ok = await setTables(state.currentProjectId, tables);
   if(!ok) showToast('순서 저장에 실패했어요');
   const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, tableTokenMatcher, tableTokenRender);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 표 번호를 새 순서에 맞게 업데이트했어요');
-  }
-  renderWorkspace(project);
+  if(project) renderWorkspace(project);
 }
 
 function scheduleTableSave(){
@@ -3773,6 +3880,7 @@ async function selectSection(key){
 
 async function selectFigures(){
   state.currentSectionKey = '__figures__';
+  updateMyPresenceSection('__figures__');
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -3780,6 +3888,7 @@ async function selectFigures(){
 
 async function selectTables(){
   state.currentSectionKey = '__tables__';
+  updateMyPresenceSection('__tables__');
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -3787,6 +3896,7 @@ async function selectTables(){
 
 async function selectMembers(){
   state.currentSectionKey = '__members__';
+  updateMyPresenceSection('__members__');
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -3794,6 +3904,7 @@ async function selectMembers(){
 
 async function selectComments(){
   state.currentSectionKey = '__comments__';
+  updateMyPresenceSection('__comments__');
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -3801,6 +3912,7 @@ async function selectComments(){
 
 async function selectReferences(){
   state.currentSectionKey = '__refs__';
+  updateMyPresenceSection('__refs__');
   const project = await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
@@ -3808,6 +3920,7 @@ async function selectReferences(){
 
 async function selectAuthors(){
   state.currentSectionKey = '__authors__';
+  updateMyPresenceSection('__authors__');
   if(!state.authorDirectoryLoaded){
     const { directory, failed } = await getAuthorDirectory();
     if(!failed){ state.authorDirectory = directory; state.authorDirectoryLoaded = true; }
