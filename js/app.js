@@ -916,7 +916,10 @@ function renderManuscriptCanvas(project, isCustom){
 function scrollToSection(key, smooth){
   const target = document.getElementById('ms-section-' + key);
   if(!target) return;
+  _scrollSpyPaused = true;
   target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
+  // 스크롤이 완료된 뒤 스파이를 다시 활성화 (smooth는 좀 더 길게 대기)
+  setTimeout(() => { _scrollSpyPaused = false; }, smooth ? 800 : 150);
 }
 
 function setActiveTocItem(key){
@@ -931,17 +934,19 @@ function refreshTocFilledState(key, filled){
 }
 
 let scrollSpyObserver = null;
+let _scrollSpyPaused = false;
 function teardownScrollSpy(){
   if(scrollSpyObserver){ scrollSpyObserver.disconnect(); scrollSpyObserver = null; }
 }
 // 스크롤 위치에 따라 사이드바 TOC의 활성 항목을 자동으로 갱신한다
-// (화면 상단 근처 띠에 걸쳐 있는 섹션 중 가장 위에 있는 것을 "현재"로 표시).
+// 감지 띠를 화면 중앙(40~60%) 기준으로 설정해 block:'center' 스크롤과 일치시킨다.
 function setupScrollSpy(){
   teardownScrollSpy();
   if(typeof IntersectionObserver === 'undefined') return;
   const sections = document.querySelectorAll('.ms-section[data-section-key]');
   if(!sections.length) return;
   scrollSpyObserver = new IntersectionObserver((entries) => {
+    if(_scrollSpyPaused) return;
     const visible = entries.filter(e => e.isIntersecting);
     if(!visible.length) return;
     visible.sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
@@ -950,7 +955,7 @@ function setupScrollSpy(){
       state.currentSectionKey = key;
       setActiveTocItem(key);
     }
-  }, { root:null, rootMargin:'-15% 0px -70% 0px', threshold:0 });
+  }, { root:null, rootMargin:'-38% 0px -38% 0px', threshold:0 });
   sections.forEach(sec => scrollSpyObserver.observe(sec));
 }
 
