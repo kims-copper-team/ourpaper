@@ -1441,8 +1441,12 @@ function _onSelectionChange(){
     return;
   }
 
-  // 커서가 이동할 때마다 presence 업데이트 (3초 throttle)
+  // 커서가 이동할 때마다 TOC 활성 탭 즉시 갱신 + presence 업데이트 (3초 throttle)
   const secKey = editorEl.id ? editorEl.id.replace('sec-content-input-', '') : null;
+  if(secKey && secKey !== state.currentSectionKey){
+    state.currentSectionKey = secKey;
+    setActiveTocItem(secKey);
+  }
   if(secKey && (secKey !== _presenceLastKey || Date.now() - _presenceLastAt > 3000)){
     _presenceLastKey = secKey; _presenceLastAt = Date.now();
     updateMyPresenceSection(secKey);
