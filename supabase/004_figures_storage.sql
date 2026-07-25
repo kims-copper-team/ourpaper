@@ -30,3 +30,8 @@ create policy "members can delete figures"
   on storage.objects for delete
   to authenticated
   using (bucket_id = 'figures' and public.is_project_member((storage.foldername(name))[1]::uuid));
+
+create policy "members can update figures"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'figures' and public.is_project_member((storage.foldername(name))[1]::uuid));
