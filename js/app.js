@@ -1325,10 +1325,12 @@ function openCiteEditPopup(spanEl){
   const items = refs.map((r, i) => {
     const num = i + 1;
     const isCited = citedNums.includes(num);
-    const title = escapeHtml(r.title || `참고문헌 ${num}`);
-    return `<label class="cite-edit-item"><input type="checkbox" class="cite-edit-cb" value="${num}" ${isCited ? 'checked' : ''}><span class="cite-edit-num">[${num}]</span><span class="cite-edit-title">${title}</span></label>`;
+    const fullText = r.text || '';
+    const doi = r.doi || '';
+    const doiHtml = doi ? `<span class="cite-edit-doi">${escapeHtml(doi)}</span>` : '';
+    return `<label class="cite-edit-item ${isCited ? 'is-cited' : ''}"><input type="checkbox" class="cite-edit-cb" value="${num}" ${isCited ? 'checked' : ''}><div class="cite-edit-info"><span class="cite-edit-num">[${num}]</span><span class="cite-edit-text">${escapeHtml(fullText || `(내용 없음)`)}</span>${doiHtml}</div></label>`;
   }).join('');
-  popup.innerHTML = `<div class="cite-edit-header">인용 편집</div>${items}<div class="cite-edit-done"><button onmousedown="event.preventDefault()" onclick="closeCiteEditPopup()">완료</button></div>`;
+  popup.innerHTML = `<div class="cite-edit-header">인용 편집 <span class="cite-edit-hint">— 체크 해제하면 제거</span></div>${items}<div class="cite-edit-done"><button onmousedown="event.preventDefault()" onclick="closeCiteEditPopup()">완료</button></div>`;
 
   const rect = spanEl.getBoundingClientRect();
   popup.style.top = (rect.bottom + 6) + 'px';
