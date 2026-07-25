@@ -147,7 +147,7 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 /* ---------- MODAL ---------- */
 .modal-overlay{
   position:fixed; inset:0; background:rgba(30,34,48,0.45); backdrop-filter:blur(2px);
-  display:flex; align-items:flex-start; justify-content:center; padding:60px 20px; z-index:100; overflow-y:auto;
+  display:flex; align-items:center; justify-content:center; padding:20px; z-index:100; overflow-y:auto;
 }
 .modal{
   background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
