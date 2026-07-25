@@ -4669,6 +4669,8 @@ async function handleLogout(){
   leaveProjectRealtime();
   await authSignOut();
   state.currentUser = null;
+  state.authorDirectory = [];
+  state.authorDirectoryLoaded = false;
   showAuthScreen('signin');
 }
 
@@ -4685,6 +4687,10 @@ async function bootAfterAuth(){
   }
   state.currentUser = { id: session.user.id, email: session.user.email, profile };
   renderUserInfo();
+  // 주소록을 로그인 시점에 미리 로드 — 프로젝트 전환과 무관하게 항상 동일한 주소록이 보임
+  getAuthorDirectory().then(({ directory, failed }) => {
+    if(!failed){ state.authorDirectory = directory; state.authorDirectoryLoaded = true; }
+  });
   showApp();
   goTab('dashboard');
 }
