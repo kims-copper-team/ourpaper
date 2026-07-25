@@ -838,9 +838,6 @@ function renderManuscriptCanvas(project, isCustom){
       <div class="editor-head">
         ${labelField}
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-          <button class="btn secondary small" onclick="toggleInsertPicker('figures','${sec.key}')">＋ 그림 삽입</button>
-          <button class="btn secondary small" onclick="toggleInsertPicker('tables','${sec.key}')">＋ 표 삽입</button>
-          <button class="btn secondary small" onclick="toggleInsertPicker('refs','${sec.key}')">＋ 인용 삽입</button>
           <button class="btn secondary small" onclick="addHighlightToSection('${sec.key}')">＋ 하이라이트</button>
           ${sec.limit ? `<span class="section-limit">권장 ${sec.limit}단어 이내</span>` : ''}
           ${isCustom ? `<button class="icon-btn" title="섹션 삭제" onclick="removeCustomSection('${sec.key}')">✕</button>` : ''}
@@ -860,6 +857,8 @@ function renderManuscriptCanvas(project, isCustom){
     const firstEditable = secs.find(s => !isReferencesSection(s));
     if(firstEditable) state.activeTextareaId = 'sec-content-input-' + firstEditable.key;
   }
+
+  initCursorToolbar();
 
   secs.forEach(sec => {
     if(isReferencesSection(sec)) return;
@@ -1316,6 +1315,92 @@ function toggleInsertPicker(kind, sectionKey){
 function closeInsertPicker(){
   const existing = document.getElementById('inline-insert-picker');
   if(existing) existing.remove();
+  // picker 닫히면 커서 툴바 다시 표시
+  setTimeout(_onSelectionChange, 50);
+}
+
+/* ---- 커서 플로팅 삽입 툴바 ---- */
+let _ctbListenerAdded = false;
+
+function initCursorToolbar(){
+  if(!document.getElementById('cursor-toolbar')){
+    const tb = document.createElement('div');
+    tb.id = 'cursor-toolbar';
+    tb.className = 'cursor-toolbar';
+    tb.innerHTML = `
+      <button class="ctb-btn" id="ctb-fig">＋ 그림</button>
+      <span class="ctb-sep"></span>
+      <button class="ctb-btn" id="ctb-tbl">＋ 표</button>
+      <span class="ctb-sep"></span>
+      <button class="ctb-btn" id="ctb-ref">＋ 인용</button>
+    `;
+    tb.addEventListener('mousedown', e => e.preventDefault());
+    tb.querySelector('#ctb-fig').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('figures', k); });
+    tb.querySelector('#ctb-tbl').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('tables', k); });
+    tb.querySelector('#ctb-ref').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('refs', k); });
+    document.body.appendChild(tb);
+  }
+  if(!_ctbListenerAdded){
+    _ctbListenerAdded = true;
+    document.addEventListener('selectionchange', _onSelectionChange);
+    document.addEventListener('scroll', _hideCursorToolbar, true);
+  }
+}
+
+function _ctbKey(){
+  const id = state.activeTextareaId || '';
+  return id.startsWith('sec-content-input-') ? id.replace('sec-content-input-', '') : null;
+}
+
+function _hideCursorToolbar(){
+  const tb = document.getElementById('cursor-toolbar');
+  if(tb) tb.classList.remove('ctb-visible');
+}
+
+function _onSelectionChange(){
+  const tb = document.getElementById('cursor-toolbar');
+  if(!tb) return;
+
+  const sel = window.getSelection();
+  if(!sel || !sel.rangeCount || !sel.isCollapsed){
+    tb.classList.remove('ctb-visible');
+    return;
+  }
+
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  const el = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node);
+  const editorEl = el && el.closest && el.closest('.editor-area');
+  if(!editorEl){
+    tb.classList.remove('ctb-visible');
+    return;
+  }
+
+  // 열려 있는 insert picker가 있으면 툴바 숨김
+  if(document.getElementById('inline-insert-picker')){
+    tb.classList.remove('ctb-visible');
+    return;
+  }
+
+  const rect = range.getBoundingClientRect();
+  let top, left;
+  if(rect.width > 0 || rect.height > 0){
+    top = rect.top - 44;
+    left = rect.left + rect.width / 2;
+  } else {
+    // 빈 줄 등에서 rect이 0인 경우 editor 영역 기준으로 폴백
+    const er = editorEl.getBoundingClientRect();
+    top = er.top - 44;
+    left = er.left + 60;
+  }
+
+  const tbW = tb.offsetWidth || 190;
+  left = Math.max(8, Math.min(window.innerWidth - tbW - 8, left - tbW / 2));
+  if(top < 56) top = (rect.height > 0 ? rect.bottom : top + 80) + 8;
+
+  tb.style.top = top + 'px';
+  tb.style.left = left + 'px';
+  tb.classList.add('ctb-visible');
 }
 
 // 본문(contenteditable) 커서 위치에 HTML 조각을 삽입
