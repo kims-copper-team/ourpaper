@@ -916,7 +916,7 @@ function renderManuscriptCanvas(project, isCustom){
 function scrollToSection(key, smooth){
   const target = document.getElementById('ms-section-' + key);
   if(!target) return;
-  target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+  target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
 }
 
 function setActiveTocItem(key){
