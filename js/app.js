@@ -706,6 +706,7 @@ function renderWorkspace(project){
         ${refsBtn}
         ${tocItems}
         ${isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : ''}
+        <div class="toc-contact">개발 문의 : jiinhwang@kims.re.kr</div>
       </div>
       <div class="editor-pane" id="editor-pane"></div>
     </div>
