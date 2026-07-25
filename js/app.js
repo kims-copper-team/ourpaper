@@ -675,7 +675,7 @@ function renderWorkspace(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length; // owner + invited participants
-  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length;
+  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length + (state.itemComments || []).filter(c => !c.resolvedAt).length;
 
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
@@ -2539,6 +2539,21 @@ async function jumpToHighlight(id){
   openHighlightPopover(id, mark);
 }
 
+async function jumpToLedgerItem(itemType, itemId){
+  const sectionKeyMap = { figure:'__figures__', table:'__tables__', reference:'__refs__' };
+  const selectFnMap = { figure: selectFigures, table: selectTables, reference: selectReferences };
+  const attrMap = { figure:`[data-fig-id="${itemId}"]`, table:`[data-table-id="${itemId}"]`, reference:`[data-ref-id="${itemId}"]` };
+  const selectFn = selectFnMap[itemType];
+  if(!selectFn) return;
+  await selectFn();
+  await new Promise(res => setTimeout(res, 300));
+  const card = document.querySelector(attrMap[itemType]);
+  if(!card){ showToast('해당 항목을 찾지 못했어요'); return; }
+  card.scrollIntoView({ behavior:'smooth', block:'center' });
+  card.classList.add('ledger-card-flash');
+  setTimeout(() => card.classList.remove('ledger-card-flash'), 1400);
+}
+
 function _itemTypeLabel(itemType, itemId, project){
   if(itemType === 'figure'){
     const fig = (state.figures||[]).find(f => f.id === itemId);
@@ -2628,6 +2643,7 @@ function renderCommentsManager(project, filter){
       ? `<button class="btn secondary small" onclick="unresolveItemComment('${c.id}','${c.itemType}','${c.itemId}')">해결 취소</button>`
       : `<button class="btn secondary small" style="color:var(--stamp-green);border-color:var(--stamp-green);" onclick="resolveItemComment('${c.id}','${c.itemType}','${c.itemId}')">✓ 해결</button>`;
     const deleteBtn = isMine ? `<button class="btn danger small" onclick="deleteItemComment('${c.id}','${c.itemType}','${c.itemId}')">삭제</button>` : '';
+    const gotoBtn = `<button class="btn secondary small" onclick="jumpToLedgerItem('${c.itemType}','${c.itemId}')">바로 가기</button>`;
     const typeIconMap = { figure:'🖼', table:'📊', reference:'📚' };
     const typeIcon = typeIconMap[c.itemType] || '💬';
     return `
@@ -2638,6 +2654,7 @@ function renderCommentsManager(project, filter){
           <span style="font-weight:600;font-size:12.5px;color:${color};">${escapeHtml(c.displayName || c.email || '알 수 없음')}</span>
           <div style="display:flex;gap:4px;">
             ${resolveBtn}
+            ${gotoBtn}
             ${deleteBtn}
           </div>
         </div>
@@ -3654,7 +3671,7 @@ function refreshTocOnly(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length;
-  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length;
+  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length + (state.itemComments || []).filter(c => !c.resolvedAt).length;
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
       <span class="toc-dot" style="visibility:hidden;"></span>

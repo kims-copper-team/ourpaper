@@ -298,6 +298,11 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   0%{ box-shadow:0 0 0 3px var(--hl-color, #B98A2E); }
   100%{ box-shadow:0 0 0 0 transparent; }
 }
+.ledger-card-flash{ animation:ledgerFlash 1.4s ease; }
+@keyframes ledgerFlash{
+  0%{ box-shadow:0 0 0 3px var(--brand); }
+  100%{ box-shadow:0 0 0 0 transparent; }
+}
 .select-highlight-btn{
   position:fixed; z-index:160; background:var(--ink); color:#fff; border:none; border-radius:999px;
   padding:8px 14px; font-size:12.5px; font-weight:600; font-family:'맑은 고딕', 'Times New Roman', sans-serif;
