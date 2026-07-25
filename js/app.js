@@ -1,7 +1,7 @@
 /* ============== DATA ============== */
 const JOURNALS = {
   materials_standard: {
-    name:'기본 프레임 (재료과학)', field:'Materials 분야 주요 저널 공통 구조', color:'#2C5F6B',
+    name:'기본 프레임', field:'Materials 분야 주요 저널 공통 구조', color:'#2C5F6B',
     sections:[
       // freeSection: true → 그림/표 순서 계산·삽입 감지에서 제외 (자유 작업 공간)
       {key:'highlights', label:'Highlights', guidance:'불릿 3~5개, 각 85자(공백 포함) 이내. 별도 파일로 제출하는 저널도 있으니 투고 전 가이드라인 확인', limit:null, freeSection:true},
@@ -396,7 +396,7 @@ function openNewProjectModal(){
           <input type="text" id="new-title" placeholder="예: Al-Mg-Si 합금의 시효 조건에 따른 미세조직 및 기계적 물성 변화" />
         </div>
         <div class="field">
-          <label>투고할 저널 / 형식 선택</label>
+          <label>형식 선택</label>
           <div class="journal-grid">${journalCards}</div>
         </div>
         <div class="modal-actions">
