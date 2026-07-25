@@ -1,90 +1,28 @@
 /* ============== DATA ============== */
 const JOURNALS = {
-  mmi: {
-    name:'Metals and Materials International', field:'금속·재료 전반 (한국재료연구원·Springer 공동 발행)', color:'#2C5F6B',
-    citation:'번호 인용 (본문 [3] 형식, 참고문헌도 번호순 정렬)', pageLimit:'게재료 페이지당 KRW 40,000 (한국 외 기관 소속 저자는 한시적 면제)', abstractLimit:250,
-    note:'그래픽 초록(Graphical Abstract) 제출 필수 — EPS/TIFF/PDF로 별도 파일 제출, 원고 파일은 docx 권장',
+  materials_standard: {
+    name:'기본 프레임 (재료과학)', field:'Materials 분야 주요 저널 공통 구조', color:'#2C5F6B',
     sections:[
-      {key:'abstract', label:'Abstract', guidance:'150~250단어. 정의되지 않은 약어나 출처가 불명확한 인용은 사용하지 않음', limit:250},
+      // freeSection: true → 그림/표 순서 계산·삽입 감지에서 제외 (자유 작업 공간)
+      {key:'highlights', label:'Highlights', guidance:'불릿 3~5개, 각 85자(공백 포함) 이내. 별도 파일로 제출하는 저널도 있으니 투고 전 가이드라인 확인', limit:null, freeSection:true},
+      {key:'graphical_abstract', label:'Graphical Abstract', guidance:'연구 핵심을 한 장에 담을 이미지 계획 메모 — 실제 파일은 EPS/TIFF/PDF로 별도 제출. 여기 삽입한 그림은 본문 번호에 영향을 주지 않아요', limit:null, freeSection:true},
+      {key:'abstract', label:'Abstract', guidance:'150~250단어. 정의되지 않은 약어·인용 사용 금지', limit:250},
       {key:'keywords', label:'Keywords', guidance:'색인용 핵심어 4~6개', limit:null},
-      {key:'graphical_abstract', label:'Graphical Abstract 기획', guidance:'실제로는 그림 파일로 별도 제출하지만, 여기서는 어떤 이미지로 연구 핵심을 한 장에 담을지 메모해두는 칸', limit:null},
-      {key:'introduction', label:'Introduction', guidance:'연구 배경과 목적, 기존 연구 대비 novelty를 제시', limit:null},
-      {key:'experimental', label:'Experimental', guidance:'재료 조성, 공정 조건, 시험 방법을 재현 가능하도록 기술', limit:null},
-      {key:'results_discussion', label:'Results and Discussion', guidance:'결과 제시와 해석을 함께 서술 (제목 체계는 1., 1.1, 1.1.1의 3단계 십진 헤딩 사용)', limit:null},
-      {key:'conclusions', label:'Conclusions', guidance:'핵심 결론을 간결히 정리', limit:null},
-      {key:'declarations', label:'Statements and Declarations', guidance:'Funding, Competing Interests 등을 참고문헌 앞에 별도 항목으로 명시 (필수 항목, 누락 시 반려)', limit:null},
-      {key:'references', label:'References', guidance:'본문 인용 순서대로 번호를 매기고, 가능하면 DOI를 전체 링크로 포함', limit:null},
-    ]
-  },
-  jmrt: {
-    name:'Journal of Materials Research and Technology (JMRT)', field:'재료 전반 · 가공-구조-물성-성능 관계 (Brazilian Metallurgical Association 발행, Elsevier)', color:'#4E7A3B',
-    citation:'Elsevier 번호 인용', pageLimit:'전면 골드 오픈 액세스 저널 (구독 옵션 없음, APC 발생 — 면제국 정책 확인)', abstractLimit:250,
-    note:'투고 시 잠재 심사위원 최대 4인 추천 필요, Highlights·Graphical Abstract·데이터 가용성 성명·CRediT 저자 기여 명시 필수',
-    sections:[
-      {key:'highlights', label:'Highlights', guidance:'불릿 3~5개, 각 항목 85자(공백 포함) 이내로 연구 핵심 성과를 요약', limit:null},
-      {key:'abstract', label:'Abstract', guidance:'250단어 이내. 목적·핵심 결과·주요 결론을 간결하게', limit:250},
-      {key:'keywords', label:'Keywords', guidance:'색인용 핵심어', limit:null},
-      {key:'introduction', label:'Introduction', guidance:'연구 배경과 목적, 기존 연구와의 차별점 제시', limit:null},
-      {key:'experimental', label:'Materials and Methods', guidance:'재료·공정·분석 조건을 재현 가능하도록 상세히 기술', limit:null},
-      {key:'results', label:'Results', guidance:'processing–structure–property–performance 관계가 드러나도록 결과 제시', limit:null},
-      {key:'discussion', label:'Discussion', guidance:'결과 해석 및 기존 문헌과의 비교', limit:null},
-      {key:'conclusions', label:'Conclusions', guidance:'핵심 결론을 간결히 정리', limit:null},
-      {key:'declarations', label:'Declarations', guidance:'Funding, Competing Interests, Data Availability, CRediT 저자 기여 명시', limit:null},
-      {key:'references', label:'References', guidance:'Elsevier 번호 인용 스타일 준수', limit:null},
-    ]
-  },
-  scripta_mat: {
-    name:'Scripta Materialia', field:'속보(rapid communication) · 단신 연구', color:'#9A5B2E',
-    citation:'Elsevier 번호 인용 (elsarticle-num)', pageLimit:'본문 2,500단어 이내(그림·표·참고문헌 제외), 그림 최대 5개', abstractLimit:150,
-    sections:[
-      {key:'abstract', label:'Abstract', guidance:'150단어를 넘지 않게, 연구 목적·핵심 결과·주요 결론만 압축', limit:150},
-      {key:'body', label:'Main Text', guidance:'속보 형식이라 Introduction/Methods/Results를 별도 절로 나누지 않고 하나의 흐름으로 서술 가능 (소제목은 선택)', limit:null},
-      {key:'references', label:'References', guidance:'번호 인용, 분량이 짧으므로 핵심 문헌 위주로 선별', limit:null},
-    ]
-  },
-  jac: {
-    name:'Journal of Alloys and Compounds', field:'합금·화합물의 합성·구조·물성', color:'#6B6558',
-    citation:'Elsevier 번호 인용 (본문에 [숫자] 표기, 등장 순서대로 번호 부여)', pageLimit:'연구논문 통상 6,000~8,000단어 (심사 단계에서 확인 필요)', abstractLimit:250,
-    note:'게재 범위 제외: 액체합금, 강(steel), 마모(wear)·크리프·용접/접합 단독 연구, 고분자·유기재료, 배위화학, 이온성 액체, 단독 촉매 연구, 생화학',
-    sections:[
-      {key:'abstract', label:'Abstract', guidance:'250단어 이내. 인용 없이 독립적으로 이해 가능하도록 작성', limit:250},
-      {key:'keywords', label:'Keywords', guidance:'색인용 핵심어', limit:null},
-      {key:'introduction', label:'Introduction', guidance:'합금/화합물 연구의 배경과 학문적 의의를 제시', limit:null},
-      {key:'experimental', label:'Experimental', guidance:'합성·제조 공정, 분석 장비 및 조건을 구체적으로 기술', limit:null},
-      {key:'results_discussion', label:'Results and Discussion', guidance:'상변화·미세구조·물성 분석 결과를 통합적으로 논의 (Results/Discussion을 합친 구성이 일반적)', limit:null},
-      {key:'conclusions', label:'Conclusions', guidance:'핵심 성과를 간결히 요약', limit:null},
-      {key:'references', label:'References', guidance:'등장 순서대로 번호를 매겨 인용', limit:null},
-    ]
-  },
-  msea: {
-    name:'Materials Science and Engineering: A', field:'재료의 조직–물성 관계, 기계적 거동', color:'#4A4E5A',
-    citation:'Elsevier 번호 인용', pageLimit:'분량 제한은 편집자 재량 (Short Communication은 2,000단어·그림 6개 이내)', abstractLimit:250,
-    sections:[
-      {key:'abstract', label:'Abstract', guidance:'250단어 이내로 목적·결과·결론을 압축', limit:250},
-      {key:'introduction', label:'Introduction', guidance:'연구 동기와 기존 연구 대비 novelty 제시', limit:null},
-      {key:'materials_methods', label:'Materials and Methods', guidance:'재료 조성, 가공·열처리 이력, 시험 방법을 상세히 기술', limit:null},
-      {key:'results', label:'Results', guidance:'미세조직 관찰 및 물성 시험 결과 제시', limit:null},
-      {key:'discussion', label:'Discussion', guidance:'조직-물성 상관관계를 중심으로 결과 해석', limit:null},
-      {key:'conclusions', label:'Conclusions', guidance:'연구 결론을 항목별로 정리', limit:null},
-      {key:'references', label:'References', guidance:'번호 인용 스타일 준수', limit:null},
-    ]
-  },
-  mmta: {
-    name:'Metallurgical and Materials Transactions A', field:'물리야금학 · 재료공정과학 (TMS/ASM, Springer)', color:'#8A3B24',
-    citation:'TMS 지정 번호 인용 스타일 (Non-superscripted Number)', pageLimit:'TMS Manuscript Preparation Guidelines 기준 확인 필요', abstractLimit:250,
-    sections:[
-      {key:'abstract', label:'Abstract', guidance:'150~250단어. 인용이나 정의되지 않은 약어 사용 금지', limit:250},
-      {key:'introduction', label:'Introduction', guidance:'연구 배경과 목적, 기존 연구와의 차별점을 제시', limit:null},
-      {key:'experimental', label:'Experimental Procedure', guidance:'합금 조성, 공정 변수, 시험 절차를 구체적으로 명시', limit:null},
-      {key:'results', label:'Results', guidance:'실험 결과를 표·그림 중심으로 제시', limit:null},
-      {key:'discussion', label:'Discussion', guidance:'공정-조직-물성 관계에 대한 해석 및 기존 문헌과의 비교', limit:null},
-      {key:'conclusions', label:'Conclusions', guidance:'핵심 결론을 간결히 정리', limit:null},
-      {key:'references', label:'References', guidance:'TMS 지정 스타일(저자명: 저널명, 연도, 권, 페이지)로 작성', limit:null},
+      {key:'introduction', label:'1. Introduction', guidance:'연구 배경과 목적, 기존 연구 대비 novelty 제시', limit:null},
+      {key:'materials_methods', label:'2. Materials and methods', guidance:'재료 조성, 공정 조건, 시험 방법을 재현 가능하도록 기술', limit:null},
+      {key:'results_discussion', label:'3. Results and discussions', guidance:'결과 제시와 해석을 함께 서술', limit:null},
+      {key:'conclusions', label:'4. Conclusions', guidance:'핵심 결론을 간결히 정리', limit:null},
+      {key:'credit', label:'CRediT authorship contribution statement', guidance:'각 저자의 기여를 CRediT 분류(Conceptualization, Methodology, …)에 따라 기재', limit:null},
+      {key:'competing_interest', label:'Declaration of competing interest', guidance:'이해충돌이 없으면 아래 기본 문구를 그대로 사용 가능', limit:null,
+        defaultContent:'The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.'},
+      {key:'acknowledgments', label:'Acknowledgments', guidance:'연구비 지원 기관, 실험 협조자 등을 기재', limit:null},
+      {key:'data_availability', label:'Data availability', guidance:'데이터 공개 방침을 기재. 공개 불가 시 문의처(corresponding author)를 명시', limit:null,
+        defaultContent:'The data that support the findings of this study are available from the corresponding author upon reasonable request.'},
+      {key:'references', label:'References', guidance:'본문 인용 순서대로 번호를 매기고, 가능하면 DOI 전체 링크 포함', limit:null},
     ]
   },
   custom: {
-    name:'사용자 정의 템플릿', field:'직접 구성', color:'#8A8574',
-    citation:'직접 지정', pageLimit:'직접 지정', abstractLimit:null,
+    name:'사용자 정의', field:'섹션을 직접 구성', color:'#8A8574',
     sections:[
       {key:'sec_abstract_default', label:'초록', guidance:'', limit:null},
     ]
@@ -178,9 +116,11 @@ async function insertProject(p){
   // 막 삽입된 행"을 스스로 다시 조회해 확인하려다 보니 통과하지 못하는 Postgres RLS 엣지
   // 케이스가 있다. 별도 조회 없이 클라이언트가 이미 아는 값으로 결과를 직접 구성한다.
   const id = crypto.randomUUID();
+  const initialContent = p.content || {};
   const row = {
     id, title: p.title, journal_id: p.journalId,
     custom_sections: p.journalId === 'custom' ? (p.customSections || []) : [],
+    content: Object.keys(initialContent).length ? initialContent : {},
     owner_id: session.user.id
   };
   const { error } = await window.sb.from('projects').insert(row);
@@ -188,7 +128,7 @@ async function insertProject(p){
   const now = Date.now();
   return { project: mapProjectRow({
     id, title: row.title, journal_id: row.journal_id, custom_sections: row.custom_sections,
-    content: {}, editor_font_size: null, owner_id: row.owner_id,
+    content: row.content, editor_font_size: null, owner_id: row.owner_id,
     created_at: new Date(now).toISOString(), updated_at: new Date(now).toISOString()
   }), error:null };
 }
@@ -294,9 +234,13 @@ function wordCount(text){
   if(!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
+// 구 journal ID → 새 ID 매핑 (이전 프로젝트 호환)
+const JOURNAL_ALIAS = { mmi:'materials_standard', jmrt:'materials_standard', scripta_mat:'materials_standard', jac:'materials_standard', msea:'materials_standard', mmta:'materials_standard' };
+
 function getSections(project){
   if(project.journalId === 'custom') return project.customSections || [];
-  return (JOURNALS[project.journalId] && JOURNALS[project.journalId].sections) || [];
+  const id = JOURNAL_ALIAS[project.journalId] || project.journalId;
+  return (JOURNALS[id] && JOURNALS[id].sections) || JOURNALS.materials_standard.sections;
 }
 function isReferencesSection(sec){
   return sec.key === 'references' || /reference|참고\s*문헌/i.test(sec.label || '');
@@ -333,8 +277,9 @@ function formatKeywordsForExport(rawContent){
 // Conclusions 같은 본문 섹션만 번호가 매겨진다.
 function isUnnumberedSection(sec){
   if(isReferencesSection(sec)) return true;
-  if(['abstract','keywords','graphical_abstract','highlights','declarations'].includes(sec.key)) return true;
-  return /abstract|keyword|highlight|declaration|초록|키워드|하이라이트|선언/i.test(sec.label || '');
+  if(isFreeSection(sec)) return true;
+  if(['abstract','keywords','graphical_abstract','highlights','declarations','credit','competing_interest','acknowledgments','data_availability'].includes(sec.key)) return true;
+  return /abstract|keyword|highlight|declaration|credit|acknowledgment|data\s*avail|초록|키워드|하이라이트|선언/i.test(sec.label || '');
 }
 function looksLikeHtml(str){
   return !!str && /<[a-z][\s\S]*>/i.test(str);
@@ -409,7 +354,7 @@ async function renderDashboard(){
 
   let html = '';
   list.forEach((p, i) => {
-    const j = JOURNALS[p.journalId] || JOURNALS.custom;
+    const j = JOURNALS[JOURNAL_ALIAS[p.journalId] || p.journalId] || JOURNALS.materials_standard;
     const progress = p.progress || 0;
     let statusClass = 'status-none', statusLabel='시작 전';
     if(progress>0 && progress<100){ statusClass='status-doing'; statusLabel='작성 중'; }
@@ -479,8 +424,17 @@ function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
 async function submitNewProject(){
   const title = document.getElementById('new-title').value.trim();
   if(!title || !newProjectSelectedJournal) return;
+  // 기본 프레임은 defaultContent 가 있는 섹션을 미리 채워둔다
+  const prefilledContent = {};
+  if(newProjectSelectedJournal !== 'custom'){
+    const jSecs = (JOURNALS[newProjectSelectedJournal] || {}).sections || [];
+    jSecs.forEach(sec => {
+      if(sec.defaultContent) prefilledContent[sec.key] = sec.defaultContent;
+    });
+  }
   const draft = {
     title, journalId:newProjectSelectedJournal,
+    content: Object.keys(prefilledContent).length ? prefilledContent : undefined,
     customSections: newProjectSelectedJournal==='custom'
       ? [{key:'sec_'+Date.now()+'_'+Math.random().toString(36).slice(2,5), label:'초록', guidance:'', limit:null}]
       : undefined
@@ -667,7 +621,7 @@ async function retryLoadMembers(){
 function renderWorkspace(project){
   teardownScrollSpy();
   state.openProject = project;
-  const j = JOURNALS[project.journalId] || JOURNALS.custom;
+  const j = JOURNALS[JOURNAL_ALIAS[project.journalId] || project.journalId] || JOURNALS.materials_standard;
   const secs = getSections(project);
   const isCustom = project.journalId === 'custom';
   const figCount = (state.figures || []).length;
@@ -1630,12 +1584,14 @@ function tableTokenRender(n){ return `Table ${n}`; }
 // 먼저 삽입됐는지(섹션 순서 → 섹션 안에서의 등장 순서)로 매번 다시 계산한다.
 // 아직 본문 어디에도 삽입 안 된 그림은 업로드 순서 그대로 뒤에 붙는다.
 // 반환값: 그림 id 배열 (index+1이 곧 Fig 번호)
+function isFreeSection(sec){ return !!sec.freeSection; }
+
 function computeFigureOrder(project, figures){
   const knownIds = new Set((figures||[]).map(f => f.id));
   const seen = new Set();
   const ordered = [];
   getSections(project).forEach(sec => {
-    if(isReferencesSection(sec)) return;
+    if(isReferencesSection(sec) || isFreeSection(sec)) return;
     const raw = project.content[sec.key] || '';
     if(!raw) return;
     const re = /data-fig-id="([^"]+)"/g;
@@ -1654,7 +1610,7 @@ function figureNumberById(project, figures, id){
   return idx === -1 ? order.length + 1 : idx + 1;
 }
 function isFigureEmbedded(project, id){
-  return getSections(project).some(sec => !isReferencesSection(sec) && (project.content[sec.key]||'').includes(`data-fig-id="${id}"`));
+  return getSections(project).some(sec => !isReferencesSection(sec) && !isFreeSection(sec) && (project.content[sec.key]||'').includes(`data-fig-id="${id}"`));
 }
 
 // 그림 삽입/삭제로 본문상 순서가 바뀔 수 있는 동작 전에 beforeOrder를 찍어두고,
@@ -4197,7 +4153,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   let numberedIndex = 0;
   for(let i=0; i<secs.length; i++){
     const s = secs[i];
-    if(isGraphicalAbstractSection(s)) continue; // 별도 파일로 제출하는 항목이라 원고에는 안 넣는다
+    if(isFreeSection(s)) continue; // freeSection(Highlights, Graphical Abstract 등)은 자유 작업 공간 — 원고에는 포함하지 않음
     if(isUnnumberedSection(s)){
       body += pHeading(s.label);
     } else {
@@ -4311,7 +4267,7 @@ async function exportProject(id){
     showToast('그림/표/저자/참고문헌을 불러오는 중 일시적인 오류가 발생했어요. 다시 시도해주세요');
     return;
   }
-  const j = JOURNALS[project.journalId] || JOURNALS.custom;
+  const j = JOURNALS[JOURNAL_ALIAS[project.journalId] || project.journalId] || JOURNALS.materials_standard;
   const secs = getSections(project);
 
   // 본문 어딘가에 실제로 삽입된(embed) 그림/표 id는 부록에 중복으로 넣지 않음
