@@ -1701,7 +1701,7 @@ function renderFigureManager(project){
         <div class="fig-filename">${escapeHtml(f.fileName)}</div>
         <label class="fig-field-label">캡션 (본문·Word 내보내기에 포함)</label>
         <textarea class="fig-caption-input" data-fig-id="${f.id}" placeholder="캡션을 입력하세요 (예: 시효 조건에 따른 미세조직 변화)">${escapeHtml(f.caption||'')}</textarea>
-        <label class="fig-field-label fig-field-label-note">메모 (이 그림이 왜 필요한지, 수정·재촬영할 부분 등 — 나만 보는 작업 메모)</label>
+        <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
         <textarea class="fig-note-input" data-fig-id="${f.id}" placeholder="예: 배율을 더 높여서 다시 찍어야 함 / 대조군 이미지와 나란히 배치 예정">${escapeHtml(f.note||'')}</textarea>
       </div>
     </div>
@@ -1855,7 +1855,7 @@ function renderTableManager(project){
       </div>
       <label class="fig-field-label">캡션 (표 위에 표시됨, 본문·Word 내보내기에 포함)</label>
       <textarea class="fig-caption-input tbl-caption-input" data-table-id="${t.id}" placeholder="캡션을 입력하세요 (예: Chemistry composition of designed alloy, wt%.)">${escapeHtml(t.caption||'')}</textarea>
-      <label class="fig-field-label fig-field-label-note">메모 (나만 보는 작업 메모)</label>
+      <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
       <textarea class="fig-note-input tbl-note-input" data-table-id="${t.id}" placeholder="예: 마지막 합금 조성값 재확인 필요">${escapeHtml(t.note||'')}</textarea>
       <div class="tbl-grid-wrap">
         <table class="tbl-edit-grid">
@@ -2215,8 +2215,8 @@ function mapHighlightRow(row){
     id: row.id, sectionKey: row.section_key, userId: row.user_id,
     quoteText: row.quote_text, note: row.note || '',
     createdAt: new Date(row.created_at).getTime(),
-    email: row.profiles ? row.profiles.email : '',
-    displayName: row.profiles ? row.profiles.display_name : '',
+    email: row.author ? row.author.email : '',
+    displayName: row.author ? row.author.display_name : '',
     resolvedAt: row.resolved_at ? new Date(row.resolved_at).getTime() : null,
     resolvedBy: row.resolved_by || null,
     resolvedByName: row.resolver ? (row.resolver.display_name || '') : ''
@@ -2226,7 +2226,7 @@ function mapHighlightRow(row){
 async function listHighlights(projectId){
   for(let i=0; i<3; i++){
     const { data, error } = await window.sb.from('highlights')
-      .select('id,section_key,user_id,quote_text,note,created_at,resolved_at,resolved_by,profiles(email,display_name),resolver:resolved_by(display_name)')
+      .select('id,section_key,user_id,quote_text,note,created_at,resolved_at,resolved_by,author:user_id(email,display_name),resolver:resolved_by(display_name)')
       .eq('project_id', projectId)
       .order('created_at', { ascending:true });
     if(!error) return { highlights: (data||[]).map(mapHighlightRow), failed:false };
@@ -2701,7 +2701,7 @@ function renderRefManager(project){
       <input type="text" id="ref-new-label" placeholder="짧은 표시 이름 (예: Kim et al. 2021)" />
       <textarea id="ref-new-text" placeholder="전체 참고문헌 텍스트를 붙여넣거나 직접 입력하세요 (예: H.J. Kim, et al., Microstructure evolution in Al-Mg-Si alloys, Acta Mater. 68 (2021) 112–120.)"></textarea>
       <input type="text" id="ref-new-doi" placeholder="DOI 또는 링크 (선택)" />
-      <label class="fig-field-label fig-field-label-note" style="display:block;">메모 (이 문헌을 왜 인용했는지 등 — 나만 보는 작업 메모)</label>
+      <label class="fig-field-label fig-field-label-note" style="display:block;">팀 댓글 (팀원에게 공유됩니다)</label>
       <textarea id="ref-new-note" class="fig-note-input" style="width:100%;box-sizing:border-box;margin-bottom:8px;" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용 / 서론에서 배경 설명용"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn secondary small" onclick="cancelAddReference()">취소</button>
@@ -2725,7 +2725,7 @@ function renderRefManager(project){
         </div>
         <textarea class="ref-text-input" data-ref-id="${r.id}" data-field="text" placeholder="전체 참고문헌 텍스트">${escapeHtml(r.text||'')}</textarea>
         <input type="text" class="ref-doi-input" data-ref-id="${r.id}" data-field="doi" value="${escapeHtml(r.doi||'')}" placeholder="DOI 또는 링크 (선택)" />
-        <label class="fig-field-label fig-field-label-note">메모 (이 문헌을 왜 인용했는지 — 나만 보는 작업 메모)</label>
+        <label class="fig-field-label fig-field-label-note">팀 댓글 (팀원에게 공유됩니다)</label>
         <textarea class="ref-note-input fig-note-input" data-ref-id="${r.id}" data-field="note" placeholder="예: 시효 조건 비교 표(Table 2)의 근거 데이터로 인용">${escapeHtml(r.note||'')}</textarea>
       </div>
     </div>
