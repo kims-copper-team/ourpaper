@@ -328,7 +328,7 @@ async function renderDashboard(){
   const main = document.getElementById('main-content');
   main.innerHTML = `<div class="page-head">
       <h1>내 프로젝트</h1>
-      <p>투고할 논문을 프로젝트 단위로 관리하세요. 저널을 정하면 해당 저널의 구성 형식에 맞춰 바로 집필을 시작할 수 있습니다.</p>
+      <p>투고할 논문을 프로젝트 단위로 관리하세요.</p>
     </div>
     <div id="dash-grid" class="grid-cards"><div style="grid-column:1/-1;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;font-size:12px;">불러오는 중…</div></div>`;
 
