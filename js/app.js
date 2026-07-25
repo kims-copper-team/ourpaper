@@ -888,6 +888,8 @@ function renderManuscriptCanvas(project, isCustom){
     contentInput.addEventListener('click', (e) => {
       const mark = e.target.closest('mark.hl');
       if(mark) openHighlightPopover(mark.dataset.hlId, mark);
+      const refToken = e.target.closest('.body-ref-token');
+      if(refToken) openCiteEditPopup(refToken);
     });
 
     if(isCustom){
@@ -1232,11 +1234,11 @@ function updateRefInsertSubmit(){
     : '0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요';
 }
 
-function submitRefInsertPick(){
+async function submitRefInsertPick(){
   const checked = Array.from(document.querySelectorAll('.insert-ref-checkbox:checked'));
   if(!checked.length) return;
   const nums = checked.map(el => parseInt(el.value,10)+1);
-  insertContentAtCursor(escapeHtml(`[${compressRefNumbers(nums)}]`));
+  insertContentAtCursor(`<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(nums)}]</span>`);
   // 인접/중첩 인용 괄호 자동 정리
   const el = state.activeTextareaId && document.getElementById(state.activeTextareaId);
   if(el){
@@ -1248,6 +1250,16 @@ function submitRefInsertPick(){
     }
   }
   closeInsertPicker();
+  // 삽입 후 body-order 기준으로 참고문헌 자동 정렬 + 본문 번호 갱신
+  const project = state.openProject;
+  const refs = state.references || [];
+  if(project && refs.length){
+    const changed = autoSortRefsByBodyOrder(project, refs);
+    if(changed){
+      await Promise.all([setProject(project), setReferences(state.currentProjectId, refs)]);
+      renderWorkspace(project);
+    }
+  }
 }
 
 function _pickerOutsideClick(e){
@@ -1292,6 +1304,69 @@ function closeInsertPicker(){
   if(existing) existing.remove();
   document.removeEventListener('mousedown', _pickerOutsideClick);
   setTimeout(_onSelectionChange, 50);
+}
+
+/* ---- 인용 편집 팝업 ([1-3] 클릭 → 체크박스로 편집) ---- */
+function openCiteEditPopup(spanEl){
+  closeCiteEditPopup();
+  const refs = state.references || [];
+  if(!refs.length) return;
+  const inner = (spanEl.textContent || '').replace(/^\[|\]$/g, '');
+  const citedNums = expandRefNumbers(inner);
+  if(!citedNums.length) return;
+
+  // 팝업을 여는 시점의 편집기 섹션 파악
+  const editorArea = spanEl.closest('.editor-area');
+  if(editorArea) state.activeTextareaId = editorArea.id;
+
+  const popup = document.createElement('div');
+  popup.id = 'cite-edit-popup';
+  popup.className = 'cite-edit-popup';
+  const items = refs.map((r, i) => {
+    const num = i + 1;
+    const isCited = citedNums.includes(num);
+    const title = escapeHtml(r.title || `참고문헌 ${num}`);
+    return `<label class="cite-edit-item"><input type="checkbox" class="cite-edit-cb" value="${num}" ${isCited ? 'checked' : ''}><span class="cite-edit-num">[${num}]</span><span class="cite-edit-title">${title}</span></label>`;
+  }).join('');
+  popup.innerHTML = `<div class="cite-edit-header">인용 편집</div>${items}<div class="cite-edit-done"><button onmousedown="event.preventDefault()" onclick="closeCiteEditPopup()">완료</button></div>`;
+
+  const rect = spanEl.getBoundingClientRect();
+  popup.style.top = (rect.bottom + 6) + 'px';
+  popup.style.left = rect.left + 'px';
+  document.body.appendChild(popup);
+
+  // 팝업 오른쪽이 뷰포트 밖으로 나가면 왼쪽으로 당김
+  const pRect = popup.getBoundingClientRect();
+  if(pRect.right > window.innerWidth - 8) popup.style.left = Math.max(8, window.innerWidth - pRect.width - 8) + 'px';
+
+  popup.querySelectorAll('.cite-edit-cb').forEach(cb => {
+    cb.addEventListener('change', () => _applyCiteEdit(popup, spanEl));
+  });
+  setTimeout(() => document.addEventListener('mousedown', _citeEditOutsideClick), 0);
+}
+
+function _applyCiteEdit(popup, spanEl){
+  const checkedNums = Array.from(popup.querySelectorAll('.cite-edit-cb:checked')).map(cb => parseInt(cb.value, 10));
+  if(!checkedNums.length){
+    spanEl.remove();
+    closeCiteEditPopup();
+  } else {
+    spanEl.textContent = '[' + compressRefNumbers(checkedNums) + ']';
+  }
+  const edEl = state.activeTextareaId && document.getElementById(state.activeTextareaId);
+  if(edEl) edEl.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function _citeEditOutsideClick(e){
+  const p = document.getElementById('cite-edit-popup');
+  if(!p){ document.removeEventListener('mousedown', _citeEditOutsideClick); return; }
+  if(!p.contains(e.target)){ closeCiteEditPopup(); }
+}
+
+function closeCiteEditPopup(){
+  const p = document.getElementById('cite-edit-popup');
+  if(p) p.remove();
+  document.removeEventListener('mousedown', _citeEditOutsideClick);
 }
 
 /* ---- 커서 플로팅 삽입 툴바 ---- */
@@ -1447,7 +1522,7 @@ async function pickFigureInsert(index){
   } else {
     const num = project ? figureNumberById(project, figures, f.id) : null;
     if(num == null){ showToast('먼저 그림을 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
-    insertContentAtCursor(escapeHtml(`Fig. ${num}`));
+    insertContentAtCursor(`<span class="body-fig-token" contenteditable="false">Fig. ${num}</span>`);
     closeInsertPicker();
   }
 }
@@ -1528,7 +1603,7 @@ async function pickTableInsert(index){
   } else {
     const num = project ? tableNumberById(project, tables, t.id) : null;
     if(num == null){ showToast('먼저 표를 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
-    insertContentAtCursor(escapeHtml(`Table ${num}`));
+    insertContentAtCursor(`<span class="body-table-token" contenteditable="false">Table ${num}</span>`);
     closeInsertPicker();
   }
 }
@@ -1575,8 +1650,11 @@ function refTokenMatcher(n){ return new RegExp('\\[' + n + '\\]', 'g'); }
 function refTokenRender(n){ return `[${n}]`; }
 
 // 인용 괄호 정리: 중첩된 [1,[2],3] → [1-3], 인접한 [1,3][2] → [1-3]
+// span 래퍼가 있으면 먼저 벗기고 정리한 뒤 다시 씌운다
 function cleanupCitationsInHtml(html){
   if(!html) return html;
+  // span 래퍼 임시 제거
+  html = html.replace(/<span[^>]*class="[^"]*body-ref-token[^"]*"[^>]*>(\[[^\]]*\])<\/span>/g, '$1');
   // 1단계: 중첩 괄호 [a,[b],c] → [a,b,c] (커서가 기존 괄호 안에 있을 때 삽입하면 발생)
   html = html.replace(/\[([^\[\]]*)\[([^\[\]]*)\]([^\[\]]*)\]/g, (_, pre, inner, post) => {
     const nums = expandRefNumbers([pre, inner, post].join(','));
@@ -1592,6 +1670,12 @@ function cleanupCitationsInHtml(html){
       return '[' + compressRefNumbers([...numsA, ...numsB]) + ']';
     });
   } while(html !== prev);
+  // 3단계: 숫자로만 이루어진 괄호를 styled span으로 래핑
+  html = html.replace(/\[(\d[\d,\s\-–]*)\]/g, (match, inner) => {
+    const nums = expandRefNumbers(inner);
+    if(!nums.length) return match;
+    return `<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(nums)}]</span>`;
+  });
   return html;
 }
 
@@ -1630,13 +1714,14 @@ function renumberRefCitationsInProject(project, mapping){
   const mapObj = {};
   mapping.forEach(({oldNum, newNum}) => { mapObj[oldNum] = newNum; });
   let changed = false;
-  const bracketRe = /\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]/g;
+  // span 래퍼 포함 또는 plain 인용 괄호 매칭
+  const bracketRe = /(?:<span[^>]*class="[^"]*body-ref-token[^"]*"[^>]*>)?(\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\])(?:<\/span>)?/g;
   getSections(project).forEach(sec => {
-    if(isReferencesSection(sec)) return; // References 섹션은 Ref Ledger에서 자동 생성되므로 대상 아님
+    if(isReferencesSection(sec)) return;
     const original = project.content[sec.key] || '';
     if(!original) return;
-    const text = original.replace(bracketRe, (whole) => {
-      const nums = expandRefNumbers(whole.slice(1,-1));
+    const text = original.replace(bracketRe, (whole, bracket) => {
+      const nums = expandRefNumbers(bracket.slice(1,-1));
       if(!nums.length) return whole;
       let touched = false;
       const remapped = nums.map(n => {
@@ -1644,16 +1729,69 @@ function renumberRefCitationsInProject(project, mapping){
         return n;
       });
       if(!touched) return whole;
-      return '[' + compressRefNumbers(remapped) + ']';
+      return `<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(remapped)}]</span>`;
     });
     if(text !== original){ project.content[sec.key] = text; changed = true; }
   });
   return changed;
 }
-function figTokenMatcher(n){ return new RegExp('Fig\\.\\s*' + n + '(?!\\d)', 'g'); }
-function figTokenRender(n){ return `Fig. ${n}`; }
-function tableTokenMatcher(n){ return new RegExp('Table\\s*' + n + '(?!\\d)', 'g'); }
-function tableTokenRender(n){ return `Table ${n}`; }
+// 본문에서 [N] 인용이 최초로 등장하는 순서대로 참고문헌을 정렬해 반환.
+// 인용된 적 없는 참고문헌은 원래 상대 순서 유지(맨 뒤에 붙음).
+function computeRefOrder(project, refs){
+  const n = refs.length;
+  if(!n) return [];
+  const firstSeen = new Map(); // number(1-based) → scan position
+  let pos = 0;
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw) return;
+    const bracketRe = /\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]/g;
+    let m;
+    while((m = bracketRe.exec(raw))){
+      expandRefNumbers(m[0].slice(1,-1)).forEach(num => {
+        if(num >= 1 && num <= n && !firstSeen.has(num)) firstSeen.set(num, pos++);
+      });
+    }
+  });
+  return Array.from({length: n}, (_, i) => i)
+    .sort((a, b) => {
+      const pa = firstSeen.has(a+1) ? firstSeen.get(a+1) : Infinity;
+      const pb = firstSeen.has(b+1) ? firstSeen.get(b+1) : Infinity;
+      return pa !== pb ? pa - pb : a - b; // 미인용은 원래 상대 순서 유지
+    })
+    .map(i => refs[i]);
+}
+
+// body-order 로 참고문헌을 정렬하고, 본문 [N] 인용 번호를 새 순서로 갱신.
+// refs 배열을 in-place 로 변경하며, 변경이 있으면 true 반환.
+function autoSortRefsByBodyOrder(project, refs){
+  if(!refs.length) return false;
+  const sorted = computeRefOrder(project, refs);
+  const oldIds = refs.map(r => r.id);
+  const newIds = sorted.map(r => r.id);
+  if(oldIds.join(',') === newIds.join(',')) return false;
+  const newPosById = {};
+  newIds.forEach((id, i) => { newPosById[id] = i + 1; });
+  const mapping = oldIds
+    .map((id, i) => ({ oldNum: i + 1, newNum: newPosById[id] }))
+    .filter(m => m.oldNum !== m.newNum);
+  sorted.forEach((r, i) => { refs[i] = r; });
+  return renumberRefCitationsInProject(project, mapping);
+}
+
+function figTokenMatcher(n){
+  return new RegExp(
+    '<span[^>]*?class="[^"]*?body-fig-token[^"]*?"[^>]*?>Fig\\.\\s*' + n + '<\\/span>' +
+    '|Fig\\.\\s*' + n + '(?!\\d)', 'g');
+}
+function figTokenRender(n){ return `<span class="body-fig-token" contenteditable="false">Fig. ${n}</span>`; }
+function tableTokenMatcher(n){
+  return new RegExp(
+    '<span[^>]*?class="[^"]*?body-table-token[^"]*?"[^>]*?>Table\\s*' + n + '<\\/span>' +
+    '|Table\\s*' + n + '(?!\\d)', 'g');
+}
+function tableTokenRender(n){ return `<span class="body-table-token" contenteditable="false">Table ${n}</span>`; }
 
 // Fig 번호는 더 이상 Fig Ledger에 올린 순서로 고정하지 않는다 — 본문 어디에
 // 먼저 삽입됐는지(섹션 순서 → 섹션 안에서의 등장 순서)로 매번 다시 계산한다.
@@ -3201,11 +3339,20 @@ async function submitReference(){
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
     label, text, doi, addedAt: Date.now()
   });
-  const ok = await setReferences(state.currentProjectId, state.references);
-  if(!ok) showToast('참고문헌 저장에 실패했어요. 다시 시도해주세요');
   refFormOpen = false;
   const project = await getProject(state.currentProjectId);
-  if(project) renderWorkspace(project);
+  if(project){
+    // 새 참고문헌 추가 후 body-order 정렬 (본문에 이미 인용된 번호가 있을 때 대응)
+    const changed = autoSortRefsByBodyOrder(project, state.references);
+    await Promise.all([
+      setReferences(state.currentProjectId, state.references),
+      changed ? setProject(project) : Promise.resolve()
+    ]);
+    renderWorkspace(project);
+  } else {
+    await setReferences(state.currentProjectId, state.references);
+    showToast('참고문헌 저장에 실패했어요. 다시 시도해주세요');
+  }
 }
 
 async function moveReference(id, dir){

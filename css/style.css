@@ -488,6 +488,39 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .picker-close-btn{ border:none; background:none; font-size:11.5px; color:var(--ink-soft); padding:3px 7px; border-radius:var(--radius); cursor:pointer; }
 .picker-close-btn:hover{ background:var(--line); color:var(--ink); }
 
+/* 본문 내 인용 토큰 (Fig. N / Table N / [1-3]) */
+.body-fig-token,
+.body-table-token{
+  color:#1d6fd4; font-weight:700; border-radius:2px; padding:0 1px; cursor:default;
+  font-style:normal; display:inline;
+}
+.body-ref-token{
+  color:#1d6fd4; font-weight:700; border-radius:2px; padding:0 1px;
+  cursor:pointer; display:inline;
+}
+.body-ref-token:hover{ background:rgba(29,111,212,.08); }
+
+/* 인용 편집 팝업 */
+.cite-edit-popup{
+  position:fixed; z-index:3000; background:var(--paper-card); border:1.5px solid var(--line-strong);
+  border-radius:var(--radius); box-shadow:0 6px 18px rgba(0,0,0,.14);
+  min-width:220px; max-width:340px; max-height:320px; overflow-y:auto; font-size:13px;
+}
+.cite-edit-header{ padding:8px 12px 6px; font-weight:600; font-size:11.5px; color:var(--ink-soft); border-bottom:1px solid var(--line); }
+.cite-edit-item{
+  display:flex; align-items:flex-start; gap:7px; padding:6px 12px; cursor:pointer; width:100%;
+}
+.cite-edit-item:hover{ background:var(--paper); }
+.cite-edit-item input[type=checkbox]{ flex-shrink:0; margin-top:2px; accent-color:#1d6fd4; }
+.cite-edit-num{ color:#1d6fd4; font-weight:700; flex-shrink:0; min-width:26px; font-size:12px; }
+.cite-edit-title{ color:var(--ink); line-height:1.4; font-size:12.5px; }
+.cite-edit-done{ padding:6px 12px 8px; border-top:1px solid var(--line); text-align:right; }
+.cite-edit-done button{
+  background:#1d6fd4; color:#fff; border:none; border-radius:var(--radius);
+  padding:4px 13px; font-size:12px; cursor:pointer;
+}
+.cite-edit-done button:hover{ background:#1558b0; }
+
 .inline-insert-picker{
   display:block; width:100%; box-sizing:border-box; margin:0 0 16px; max-height:280px; overflow-y:auto;
   background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius);
