@@ -101,7 +101,7 @@ let state = {
   authorDirectory:[], authorDirectoryLoaded:false,
   tables:[], tableSaveTimer:null, tablesLoadFailed:false,
   members:[], membersLoadFailed:false,
-  highlights:[], highlightsLoadFailed:false,
+  highlights:[], highlightsLoadFailed:false, commentFilter:'open',
   activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
   openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
   realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{}
@@ -672,7 +672,7 @@ function renderWorkspace(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length; // owner + invited participants
-  const commentCount = (state.highlights || []).length;
+  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length;
 
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
@@ -682,7 +682,7 @@ function renderWorkspace(project){
   const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
-      <span style="flex:1;text-align:left;">코멘트${state.highlightsLoadFailed ? ' ⚠' : (commentCount ? ` (${commentCount})` : '')}</span>
+      <span style="flex:1;text-align:left;">댓글${state.highlightsLoadFailed ? ' ⚠' : (openCommentCount ? ` (${openCommentCount})` : '')}</span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
@@ -787,6 +787,7 @@ function renderWorkspace(project){
     requestAnimationFrame(() => {
       if(state.currentSectionKey) scrollToSection(state.currentSectionKey, false);
       setupScrollSpy();
+      applyResolvedMarkClasses();
     });
   }
 }
@@ -1130,11 +1131,59 @@ function renderPresenceBar(){
   if(!el) return;
   const users = Object.values(state.presenceUsers || {});
   if(!users.length){ el.innerHTML = ''; return; }
-  el.innerHTML = users.map(u => `
-    <span class="presence-avatar" style="background:${u.color}22;color:${u.color};border-color:${u.color};" title="${escapeHtml(u.displayName || u.email || '')} · 지금 함께 보는 중">
-      ${escapeHtml(((u.displayName || u.email || '?').trim()[0] || '?').toUpperCase())}
-    </span>
-  `).join('');
+
+  const secLabel = (key) => {
+    if(!key || !state.openProject) return '';
+    const secs = getSections(state.openProject);
+    const found = secs.find(s => s.key === key);
+    if(found) return found.label;
+    const ledgerLabels = { '__members__':'멤버', '__authors__':'저자', '__figures__':'그림', '__refs__':'참고문헌', '__tables__':'표', '__comments__':'댓글' };
+    return ledgerLabels[key] || key;
+  };
+
+  el.innerHTML = users.map(u => {
+    const sec = secLabel(u.sectionKey);
+    const tip = `${u.displayName || u.email || '?'}${sec ? ' · ' + sec + ' 섹션 보는 중' : ' · 접속 중'}`;
+    return `<span class="presence-avatar" style="background:${u.color}22;color:${u.color};border-color:${u.color};" title="${escapeHtml(tip)}">${escapeHtml(((u.displayName || u.email || '?').trim()[0] || '?').toUpperCase())}</span>`;
+  }).join('') + `<span class="presence-label" onclick="togglePresencePanel()" title="접속자 보기">▾</span>`;
+
+  renderPresencePanel(users, secLabel);
+}
+
+function renderPresencePanel(users, secLabel){
+  let panel = document.getElementById('presence-panel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'presence-panel';
+    panel.className = 'presence-panel';
+    document.body.appendChild(panel);
+    document.addEventListener('mousedown', (e) => {
+      if(!e.target.closest('#presence-panel') && !e.target.closest('.presence-label') && !e.target.closest('.presence-avatar'))
+        panel.classList.remove('open');
+    }, true);
+  }
+  panel.innerHTML = `<div class="presence-panel-title">지금 함께 접속 중</div>` + users.map(u => {
+    const sec = secLabel(u.sectionKey);
+    return `<div class="presence-panel-row">
+      <span class="presence-avatar" style="background:${u.color}22;color:${u.color};border-color:${u.color};width:26px;height:26px;font-size:11px;">${escapeHtml(((u.displayName || u.email || '?').trim()[0] || '?').toUpperCase())}</span>
+      <div>
+        <div style="font-weight:600;font-size:12.5px;color:${u.color};">${escapeHtml(u.displayName || u.email || '?')}</div>
+        ${sec ? `<div style="font-size:11px;color:var(--ink-faint);">${escapeHtml(sec)} 섹션 보는 중</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function togglePresencePanel(){
+  const panel = document.getElementById('presence-panel');
+  if(!panel) return;
+  const bar = document.getElementById('presence-bar');
+  if(bar){
+    const r = bar.getBoundingClientRect();
+    panel.style.top = (r.bottom + 8) + 'px';
+    panel.style.right = (window.innerWidth - r.right) + 'px';
+  }
+  panel.classList.toggle('open');
 }
 
 function refreshTocPresenceDots(){
@@ -2167,14 +2216,17 @@ function mapHighlightRow(row){
     quoteText: row.quote_text, note: row.note || '',
     createdAt: new Date(row.created_at).getTime(),
     email: row.profiles ? row.profiles.email : '',
-    displayName: row.profiles ? row.profiles.display_name : ''
+    displayName: row.profiles ? row.profiles.display_name : '',
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).getTime() : null,
+    resolvedBy: row.resolved_by || null,
+    resolvedByName: row.resolver ? (row.resolver.display_name || '') : ''
   };
 }
 
 async function listHighlights(projectId){
   for(let i=0; i<3; i++){
     const { data, error } = await window.sb.from('highlights')
-      .select('id,section_key,user_id,quote_text,note,created_at,profiles(email,display_name)')
+      .select('id,section_key,user_id,quote_text,note,created_at,resolved_at,resolved_by,profiles(email,display_name),resolver:resolved_by(display_name)')
       .eq('project_id', projectId)
       .order('created_at', { ascending:true });
     if(!error) return { highlights: (data||[]).map(mapHighlightRow), failed:false };
@@ -2188,8 +2240,8 @@ async function createHighlightRow(projectId, sectionKey, quoteText){
   const session = await getSession();
   if(!session) return { highlight:null, error:new Error('로그인이 필요합니다') };
   const { data, error } = await window.sb.from('highlights').insert({
-    project_id: projectId, section_key: sectionKey, user_id: session.user.id, quote_text: quoteText, note:''
-  }).select('id,section_key,user_id,quote_text,note,created_at').single();
+    project_id: projectId, section_key: sectionKey, user_id: session.user.id, quote_text: quoteText, note:'', resolved_at: null, resolved_by: null
+  }).select('id,section_key,user_id,quote_text,note,created_at,resolved_at,resolved_by').single();
   if(error) return { highlight:null, error };
   const profile = state.currentUser && state.currentUser.profile;
   return { highlight: mapHighlightRow(Object.assign({}, data, { profiles: profile })), error:null };
@@ -2204,6 +2256,23 @@ async function updateHighlightNoteRow(id, note){
 async function deleteHighlightRow(id){
   const { error } = await window.sb.from('highlights').delete().eq('id', id);
   if(error){ console.error('코멘트 삭제 실패:', error); return false; }
+  return true;
+}
+
+async function resolveHighlightRow(id){
+  const session = await getSession();
+  if(!session) return null;
+  const now = new Date().toISOString();
+  const { error } = await window.sb.from('highlights')
+    .update({ resolved_at: now, resolved_by: session.user.id }).eq('id', id);
+  if(error){ console.error('해결 처리 실패:', error); return null; }
+  return { resolvedAt: new Date(now).getTime(), resolvedBy: session.user.id, resolvedByName: (state.currentUser?.profile?.display_name || state.currentUser?.email || '') };
+}
+
+async function unresolveHighlightRow(id){
+  const { error } = await window.sb.from('highlights')
+    .update({ resolved_at: null, resolved_by: null }).eq('id', id);
+  if(error){ console.error('해결 취소 실패:', error); return false; }
   return true;
 }
 
@@ -2227,6 +2296,13 @@ function persistSectionAfterHighlightChange(sectionKey){
 // 전자책 리더처럼: 본문에서 문구를 선택하면(마우스를 떼는 순간) 선택 영역
 // 바로 위에 작은 "하이라이트" 버튼이 떠서, 상단 버튼까지 갈 필요가 없다.
 let selectHighlightBtnEl = null;
+
+function applyResolvedMarkClasses(){
+  const resolved = new Set((state.highlights || []).filter(h => h.resolvedAt).map(h => h.id));
+  document.querySelectorAll('mark.hl[data-hl-id]').forEach(mark => {
+    mark.classList.toggle('hl-resolved', resolved.has(mark.dataset.hlId));
+  });
+}
 
 function initSelectionHighlightUI(){
   document.addEventListener('mouseup', handleTextSelectionForHighlight);
@@ -2335,14 +2411,28 @@ function openHighlightPopover(highlightId, markEl){
   const h = (state.highlights || []).find(x => x.id === highlightId);
   if(!h || !markEl) return;
   const rect = markEl.getBoundingClientRect();
-  const isMine = h.userId === state.currentUser.id;
-  const isOwner = state.openProject && state.openProject.ownerId === state.currentUser.id;
+  const isMine = h.userId === (state.currentUser && state.currentUser.id);
   const color = colorForUser(h.userId);
+  const isResolved = !!h.resolvedAt;
+
+  const resolvedBadge = isResolved
+    ? `<div class="hl-resolved-badge">✓ 해결됨 · <span>${escapeHtml(h.resolvedByName || '누군가')}</span></div>`
+    : '';
+  const noteSection = isMine
+    ? `<textarea class="hl-popover-note-input" id="hl-note-input" placeholder="댓글을 남겨보세요">${escapeHtml(h.note)}</textarea>`
+    : `<div class="hl-popover-note">${h.note ? escapeHtml(h.note) : '<i style="color:var(--ink-faint)">댓글 없음</i>'}</div>`;
+  const resolveBtn = isResolved
+    ? `<button class="btn secondary small" onclick="unresolveHighlight('${h.id}')">해결 취소</button>`
+    : `<button class="btn secondary small" style="color:var(--stamp-green);border-color:var(--stamp-green);" onclick="resolveHighlight('${h.id}')">✓ 해결 완료</button>`;
+  const deleteBtn = isMine
+    ? `<button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>` : '';
+  const saveBtn = isMine
+    ? `<button class="btn small" onclick="saveHighlightNote('${h.id}')">저장</button>` : '';
 
   const pop = document.createElement('div');
   pop.id = 'highlight-popover';
-  pop.className = 'hl-popover';
-  pop.style.left = Math.max(8, rect.left + window.scrollX) + 'px';
+  pop.className = 'hl-popover' + (isResolved ? ' hl-popover-resolved' : '');
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - 292, rect.left + window.scrollX)) + 'px';
   pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
   pop.innerHTML = `
     <div class="hl-popover-head">
@@ -2350,15 +2440,14 @@ function openHighlightPopover(highlightId, markEl){
       <span class="hl-popover-date">${fmtDate(h.createdAt)}</span>
     </div>
     <div class="hl-popover-quote">${escapeHtml(h.quoteText)}</div>
-    ${isMine
-      ? `<textarea class="hl-popover-note-input" id="hl-note-input" placeholder="메모를 남겨보세요">${escapeHtml(h.note)}</textarea>
-         <div class="hl-popover-actions">
-           <button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>
-           <button class="btn small" onclick="saveHighlightNote('${h.id}')">저장</button>
-         </div>`
-      : `<div class="hl-popover-note">${h.note ? escapeHtml(h.note) : '<i>메모 없음</i>'}</div>
-         ${isOwner ? `<div class="hl-popover-actions"><button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button></div>` : ''}`
-    }
+    ${resolvedBadge}
+    ${noteSection}
+    <div class="hl-popover-actions">
+      ${deleteBtn}
+      <span style="flex:1"></span>
+      ${resolveBtn}
+      ${saveBtn}
+    </div>
   `;
   document.body.appendChild(pop);
   if(isMine){ const ta = document.getElementById('hl-note-input'); if(ta) ta.focus(); }
@@ -2373,7 +2462,7 @@ async function saveHighlightNote(id){
   if(!ok){ showToast('저장에 실패했어요'); return; }
   const h = (state.highlights || []).find(x => x.id === id);
   if(h){ h.note = note; broadcastHighlightEvent('update', h); }
-  showToast('메모를 저장했어요');
+  showToast('댓글을 저장했어요');
   closeHighlightPopover();
   if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
 }
@@ -2381,19 +2470,56 @@ async function saveHighlightNote(id){
 async function deleteHighlightAndUnwrap(id){
   const h = (state.highlights || []).find(x => x.id === id);
   if(!h) return;
+  if(h.userId !== (state.currentUser && state.currentUser.id)){
+    showToast('본인이 작성한 댓글만 삭제할 수 있어요'); return;
+  }
   const ok = await deleteHighlightRow(id);
   if(!ok){ showToast('삭제에 실패했어요'); return; }
   state.highlights = (state.highlights || []).filter(x => x.id !== id);
   closeHighlightPopover();
   const mark = document.querySelector(`mark.hl[data-hl-id="${id}"]`);
   if(mark){
-    mark.replaceWith(...mark.childNodes); // 밑줄 표시만 제거, 텍스트는 그대로 유지
+    mark.replaceWith(...mark.childNodes);
     persistSectionAfterHighlightChange(h.sectionKey);
   }
   broadcastHighlightEvent('delete', h);
   if(state.openProject) refreshTocOnly(state.openProject);
-  showToast('코멘트를 삭제했어요');
+  showToast('댓글을 삭제했어요');
   if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+}
+
+async function resolveHighlight(id){
+  const result = await resolveHighlightRow(id);
+  if(!result){ showToast('해결 처리에 실패했어요'); return; }
+  const h = (state.highlights || []).find(x => x.id === id);
+  if(h){
+    h.resolvedAt = result.resolvedAt;
+    h.resolvedBy = result.resolvedBy;
+    h.resolvedByName = result.resolvedByName;
+    const mark = document.querySelector(`mark.hl[data-hl-id="${id}"]`);
+    if(mark) mark.classList.add('hl-resolved');
+    broadcastHighlightEvent('resolve', h);
+  }
+  closeHighlightPopover();
+  showToast('해결 완료로 표시했어요');
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+  else if(state.openProject) refreshTocOnly(state.openProject);
+}
+
+async function unresolveHighlight(id){
+  const ok = await unresolveHighlightRow(id);
+  if(!ok){ showToast('해결 취소에 실패했어요'); return; }
+  const h = (state.highlights || []).find(x => x.id === id);
+  if(h){
+    h.resolvedAt = null; h.resolvedBy = null; h.resolvedByName = '';
+    const mark = document.querySelector(`mark.hl[data-hl-id="${id}"]`);
+    if(mark) mark.classList.remove('hl-resolved');
+    broadcastHighlightEvent('unresolve', h);
+  }
+  closeHighlightPopover();
+  showToast('해결 완료를 취소했어요');
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
+  else if(state.openProject) refreshTocOnly(state.openProject);
 }
 
 async function jumpToHighlight(id){
@@ -2409,14 +2535,15 @@ async function jumpToHighlight(id){
   openHighlightPopover(id, mark);
 }
 
-function renderCommentsManager(project){
+function renderCommentsManager(project, filter){
   const pane = document.getElementById('editor-pane');
+  if(!filter) filter = state.commentFilter || 'open';
 
   if(state.highlightsLoadFailed){
     pane.innerHTML = `
-      <div class="editor-head"><h2>코멘트</h2></div>
+      <div class="editor-head"><h2>댓글</h2></div>
       <div style="text-align:center;padding:56px 20px;">
-        <div style="font-family:'Times New Roman','맑은 고딕',serif;font-size:17px;font-weight:600;margin-bottom:6px;">코멘트 목록을 불러오지 못했어요</div>
+        <div style="font-family:'Times New Roman','맑은 고딕',serif;font-size:17px;font-weight:600;margin-bottom:6px;">댓글 목록을 불러오지 못했어요</div>
         <div style="color:var(--ink-soft);font-size:13px;line-height:1.7;max-width:360px;margin:0 auto 18px;">일시적인 저장소 서버 오류예요. 잠시 후 다시 시도해주세요.</div>
         <button class="btn small" onclick="retryLoadHighlights()">다시 시도</button>
       </div>
@@ -2424,31 +2551,54 @@ function renderCommentsManager(project){
     return;
   }
 
-  const list = state.highlights || [];
+  state.commentFilter = filter;
+  const all = state.highlights || [];
   const secs = getSections(project);
   const labelFor = (key) => (secs.find(s => s.key === key) || {}).label || key;
+  const openCount = all.filter(h => !h.resolvedAt).length;
+  const resolvedCount = all.filter(h => !!h.resolvedAt).length;
+  const list = filter === 'resolved' ? all.filter(h => !!h.resolvedAt) : all.filter(h => !h.resolvedAt);
+  const myId = state.currentUser && state.currentUser.id;
 
   const cards = list.map(h => {
     const color = colorForUser(h.userId);
+    const isMine = h.userId === myId;
+    const isResolved = !!h.resolvedAt;
+    const resolvedInfo = isResolved
+      ? `<div class="hl-resolved-badge" style="margin:4px 0 0;">✓ 해결됨 · <span>${escapeHtml(h.resolvedByName || '누군가')}</span></div>` : '';
+    const resolveBtn = isResolved
+      ? `<button class="btn secondary small" onclick="unresolveHighlight('${h.id}')">해결 취소</button>`
+      : `<button class="btn secondary small" style="color:var(--stamp-green);border-color:var(--stamp-green);" onclick="resolveHighlight('${h.id}')">✓ 해결</button>`;
+    const deleteBtn = isMine
+      ? `<button class="btn danger small" onclick="deleteHighlightAndUnwrap('${h.id}')">삭제</button>` : '';
     return `
-    <div class="ref-card">
+    <div class="ref-card${isResolved ? ' hl-card-resolved' : ''}">
       <div class="ref-num-badge" style="background:${color}22;color:${color};border-color:${color};">✎</div>
       <div class="ref-body">
-        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
           <span style="font-weight:600;font-size:12.5px;color:${color};">${escapeHtml(h.displayName || h.email || '알 수 없음')}</span>
-          <button class="btn secondary small" onclick="jumpToHighlight('${h.id}')">본문에서 보기</button>
+          <div style="display:flex;gap:4px;">
+            ${resolveBtn}
+            <button class="btn secondary small" onclick="jumpToHighlight('${h.id}')">본문에서 보기</button>
+            ${deleteBtn}
+          </div>
         </div>
         <div style="font-size:11.5px;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;margin:4px 0;">${escapeHtml(labelFor(h.sectionKey))} · ${fmtDate(h.createdAt)}</div>
-        <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:13.5px;color:var(--ink);border-left:3px solid ${color};padding-left:8px;margin-bottom:${h.note?'6px':'0'};">${escapeHtml(h.quoteText)}</div>
-        ${h.note ? `<div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;">${escapeHtml(h.note)}</div>` : ''}
+        <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:13.5px;color:${isResolved?'var(--ink-faint)':'var(--ink)'};border-left:3px solid ${color};padding-left:8px;margin-bottom:${h.note?'6px':'0'};">${escapeHtml(h.quoteText)}</div>
+        ${h.note ? `<div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;white-space:pre-wrap;">${escapeHtml(h.note)}</div>` : ''}
+        ${resolvedInfo}
       </div>
     </div>`;
   }).join('');
 
   pane.innerHTML = `
-    <div class="editor-head"><h2>코멘트</h2><span class="section-limit">${list.length}개</span></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">본문에서 문구를 드래그해 선택한 뒤, 각 섹션 상단의 "＋ 하이라이트" 버튼을 누르면 그 자리에 메모를 남길 수 있어요. 메모 색은 남긴 사람마다 자동으로 달라져요. 여기서는 프로젝트 전체의 코멘트를 한눈에 모아볼 수 있어요.</div>
-    <div class="fig-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 코멘트가 없습니다</div>`}</div>
+    <div class="editor-head"><h2>댓글</h2><span class="section-limit">${all.length}개</span></div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">본문에서 문구를 드래그해 선택하면 "🖍 하이라이트" 버튼이 나타나요. 댓글 색은 작성자마다 달라지며, 작성자 본인만 댓글을 삭제할 수 있어요.</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;">
+      <button class="btn${filter==='open'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'open')">미해결 (${openCount})</button>
+      <button class="btn${filter==='resolved'?' primary':' secondary'} small" onclick="renderCommentsManager(state.openProject,'resolved')">해결됨 (${resolvedCount})</button>
+    </div>
+    <div class="fig-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">${filter==='resolved'?'해결된 댓글이 없습니다':'미해결 댓글이 없습니다'}</div>`}</div>
   `;
 }
 
@@ -2464,14 +2614,66 @@ function handleRemoteHighlightEvent(payload){
   const { action, highlight, fromUserId } = payload || {};
   if(!highlight || fromUserId === (state.currentUser && state.currentUser.id)) return;
   state.highlights = state.highlights || [];
-  if(action === 'create' || action === 'update'){
+
+  if(action === 'create'){
     const idx = state.highlights.findIndex(h => h.id === highlight.id);
     if(idx === -1) state.highlights.push(highlight); else state.highlights[idx] = highlight;
+    showCommentNotification(highlight);
+  } else if(action === 'update'){
+    const idx = state.highlights.findIndex(h => h.id === highlight.id);
+    if(idx === -1) state.highlights.push(highlight); else state.highlights[idx] = highlight;
+  } else if(action === 'resolve' || action === 'unresolve'){
+    const idx = state.highlights.findIndex(h => h.id === highlight.id);
+    if(idx !== -1){
+      state.highlights[idx].resolvedAt = highlight.resolvedAt;
+      state.highlights[idx].resolvedBy = highlight.resolvedBy;
+      state.highlights[idx].resolvedByName = highlight.resolvedByName;
+    }
+    const mark = document.querySelector(`mark.hl[data-hl-id="${highlight.id}"]`);
+    if(mark) mark.classList.toggle('hl-resolved', action === 'resolve');
   } else if(action === 'delete'){
     state.highlights = state.highlights.filter(h => h.id !== highlight.id);
   }
+
   if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
   else if(state.openProject) refreshTocOnly(state.openProject);
+}
+
+function showCommentNotification(h){
+  const author = h.displayName || h.email || '누군가';
+  const quote = (h.quoteText || '').slice(0, 40) + ((h.quoteText || '').length > 40 ? '…' : '');
+  const color = colorForUser(h.userId);
+  const el = document.createElement('div');
+  el.className = 'comment-notif';
+  el.innerHTML = `
+    <div class="comment-notif-head">
+      <span class="comment-notif-dot" style="background:${color}"></span>
+      <strong>${escapeHtml(author)}</strong>가 새 댓글을 남겼어요
+    </div>
+    <div class="comment-notif-quote">"${escapeHtml(quote)}"</div>
+  `;
+  el.addEventListener('click', () => { el.remove(); jumpToHighlight(h.id); });
+  document.body.appendChild(el);
+  playNotificationSound();
+  setTimeout(() => { el.classList.add('comment-notif-hide'); setTimeout(() => el.remove(), 400); }, 5000);
+}
+
+function playNotificationSound(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1108, 1320].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.12;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.12, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.start(t); osc.stop(t + 0.25);
+    });
+    setTimeout(() => ctx.close(), 1500);
+  }catch(e){}
 }
 
 /* ============== REF LEDGER (참고문헌 관리) ============== */
@@ -3211,7 +3413,7 @@ function refreshTocOnly(project){
   const authorCount = (state.authors || []).length;
   const tableCount = (state.tables || []).length;
   const memberCount = 1 + (state.members || []).length;
-  const commentCount = (state.highlights || []).length;
+  const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length;
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
@@ -3220,7 +3422,7 @@ function refreshTocOnly(project){
   const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
       <span class="toc-num">✎</span>
       <span class="toc-dot" style="visibility:hidden;"></span>
-      <span style="flex:1;text-align:left;">코멘트${state.highlightsLoadFailed ? ' ⚠' : (commentCount ? ` (${commentCount})` : '')}</span>
+      <span style="flex:1;text-align:left;">댓글${state.highlightsLoadFailed ? ' ⚠' : (openCommentCount ? ` (${openCommentCount})` : '')}</span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
