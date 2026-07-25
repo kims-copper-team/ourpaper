@@ -1446,6 +1446,7 @@ function _onSelectionChange(){
   if(secKey && secKey !== state.currentSectionKey){
     state.currentSectionKey = secKey;
     setActiveTocItem(secKey);
+    scrollToSection(secKey, true);
   }
   if(secKey && (secKey !== _presenceLastKey || Date.now() - _presenceLastAt > 3000)){
     _presenceLastKey = secKey; _presenceLastAt = Date.now();
