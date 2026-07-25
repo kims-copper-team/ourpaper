@@ -1166,11 +1166,12 @@ function buildFigureInsertPanel(){
   } else if(figures.length === 0){
     itemsHtml = `<div class="insert-popover-empty">아직 업로드한 그림이 없어요.<br>Fig Ledger에서 먼저 추가해보세요.</div>`;
   } else {
+    const project = state.openProject;
     itemsHtml = figures.map((f,i) => `
       <button class="insert-item" onclick="pickFigureInsert(${i})">
         <span class="insert-thumb"><img src="${figureSrc(f)}" alt=""></span>
         <span class="insert-text">
-          <div class="insert-primary">Fig. ${i+1}</div>
+          <div class="insert-primary">Fig. ${project ? figureNumberById(project, figures, f.id) : i+1}${project && !isFigureEmbedded(project, f.id) ? ' (미삽입)' : ''}</div>
           <div class="insert-secondary">${escapeHtml(f.caption || f.fileName)}</div>
         </span>
       </button>
@@ -1300,19 +1301,33 @@ function insertContentAtCursor(html){
   el.dispatchEvent(new Event('input', { bubbles:true }));
 }
 
-function pickFigureInsert(index){
+async function pickFigureInsert(index){
   const figures = state.figures || [];
   const f = figures[index];
   if(!f) return;
   const mode = state.figInsertMode || 'embed';
+  const project = state.openProject;
   if(mode === 'embed'){
+    const beforeOrder = project ? computeFigureOrder(project, figures) : [];
     const captionText = escapeHtml(f.caption || '(캡션 미작성)');
-    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${figureSrc(f)}" alt=""><div class="inline-figure-caption"><b>Fig. ${index+1}.</b> ${captionText}</div></div><div><br></div>`;
+    // 정확한 번호는 삽입된 위치를 봐야 알 수 있으니 일단 넣고 바로 계산해서 고쳐 쓴다.
+    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${figureSrc(f)}" alt=""><div class="inline-figure-caption"><b>Fig. ?.</b> ${captionText}</div></div><div><br></div>`;
     insertContentAtCursor(html);
+    closeInsertPicker();
+    if(project){
+      const num = figureNumberById(project, figures, f.id);
+      let changed = syncEmbeddedFigureCaption(project, f.id, num, f.caption);
+      if(resyncFigureNumbering(beforeOrder, project, figures)) changed = true;
+      if(changed){
+        await setProject(project);
+        renderWorkspace(project);
+      }
+    }
   } else {
-    insertContentAtCursor(escapeHtml(`Fig. ${index+1}`));
+    const num = project ? figureNumberById(project, figures, f.id) : index+1;
+    insertContentAtCursor(escapeHtml(`Fig. ${num}`));
+    closeInsertPicker();
   }
-  closeInsertPicker();
 }
 function buildTableInsertPanel(){
   const mode = state.tableInsertMode || 'embed';
@@ -1473,6 +1488,102 @@ function figTokenRender(n){ return `Fig. ${n}`; }
 function tableTokenMatcher(n){ return new RegExp('Table\\s*' + n + '(?!\\d)', 'g'); }
 function tableTokenRender(n){ return `Table ${n}`; }
 
+// Fig 번호는 더 이상 Fig Ledger에 올린 순서로 고정하지 않는다 — 본문 어디에
+// 먼저 삽입됐는지(섹션 순서 → 섹션 안에서의 등장 순서)로 매번 다시 계산한다.
+// 아직 본문 어디에도 삽입 안 된 그림은 업로드 순서 그대로 뒤에 붙는다.
+// 반환값: 그림 id 배열 (index+1이 곧 Fig 번호)
+function computeFigureOrder(project, figures){
+  const knownIds = new Set((figures||[]).map(f => f.id));
+  const seen = new Set();
+  const ordered = [];
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw) return;
+    const re = /data-fig-id="([^"]+)"/g;
+    let m;
+    while((m = re.exec(raw))){
+      const id = m[1];
+      if(knownIds.has(id) && !seen.has(id)){ seen.add(id); ordered.push(id); }
+    }
+  });
+  (figures||[]).forEach(f => { if(!seen.has(f.id)) ordered.push(f.id); });
+  return ordered;
+}
+function figureNumberById(project, figures, id){
+  const order = computeFigureOrder(project, figures);
+  const idx = order.indexOf(id);
+  return idx === -1 ? order.length + 1 : idx + 1;
+}
+function isFigureEmbedded(project, id){
+  return getSections(project).some(sec => !isReferencesSection(sec) && (project.content[sec.key]||'').includes(`data-fig-id="${id}"`));
+}
+
+// 그림 삽입/삭제로 본문상 순서가 바뀔 수 있는 동작 전에 beforeOrder를 찍어두고,
+// 동작 후 이 함수를 호출하면: 번호가 실제로 바뀐 그림들만 골라 (1) 본문에 이미
+// 삽입된 캡션의 "Fig. N."과 (2) "Fig. N"이라고 직접 언급한 본문 문장들까지
+// 새 번호로 맞춰 갱신한다.
+function resyncFigureNumbering(beforeOrder, project, figures){
+  const afterOrder = computeFigureOrder(project, figures);
+  const mapping = [];
+  beforeOrder.forEach((id, i) => {
+    const oldNum = i+1;
+    const newIdx = afterOrder.indexOf(id);
+    if(newIdx === -1) return; // 삭제된 그림
+    const newNum = newIdx+1;
+    if(newNum !== oldNum) mapping.push({ oldNum, newNum, id });
+  });
+  if(!mapping.length) return false;
+  let changed = renumberTokensInProject(project, mapping.map(({oldNum,newNum}) => ({oldNum,newNum})), figTokenMatcher, figTokenRender);
+  mapping.forEach(({ id, newNum }) => {
+    const fig = (figures||[]).find(f => f.id === id);
+    if(fig && syncEmbeddedFigureCaption(project, id, newNum, fig.caption)) changed = true;
+  });
+  return changed;
+}
+
+// Fig Ledger에서 그림을 삭제하면, 본문에 이미 삽입해둔 블록도 같이 지운다 —
+// 안 그러면 Ledger에는 없는데 본문에만 남아 번호도 다시는 안 맞는 유령 그림이 된다.
+function stripEmbeddedFigure(project, figureId){
+  let changed = false;
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw || !looksLikeHtml(raw)) return;
+    if(raw.indexOf(`data-fig-id="${figureId}"`) === -1) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = raw;
+    const target = tmp.querySelector(`.inline-figure[data-fig-id="${figureId}"]`);
+    if(target){
+      target.remove();
+      project.content[sec.key] = tmp.innerHTML;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+// 본문에 실제로 삽입된(embed) 그림 블록의 <img src>를 새 URL로 동기화 (자르기 등
+// 그림 자체가 바뀌었을 때, 본문에 이미 넣어둔 이미지도 같이 바뀌도록)
+function syncEmbeddedFigureImage(project, figureId, newUrl){
+  let changed = false;
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw || !looksLikeHtml(raw)) return;
+    if(raw.indexOf(`data-fig-id="${figureId}"`) === -1) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = raw;
+    const imgs = tmp.querySelectorAll(`.inline-figure[data-fig-id="${figureId}"] img`);
+    if(imgs.length){
+      imgs.forEach(img => { img.src = newUrl; });
+      project.content[sec.key] = tmp.innerHTML;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 // 본문에 실제로 삽입된(embed) 그림 블록의 캡션을 Fig Ledger 캡션과 동기화
 function syncEmbeddedFigureCaption(project, figureId, figNum, newCaption){
   let changed = false;
@@ -1520,17 +1631,21 @@ function renderFigureManager(project){
   }
 
   const figures = state.figures || [];
+  const order = computeFigureOrder(project, figures);
+  const byId = new Map(figures.map(f => [f.id, f]));
+  const orderedFigures = order.map(id => byId.get(id)).filter(Boolean);
 
-  const cards = figures.map((f, i) => `
-    <div class="fig-card" draggable="true" data-fig-id="${f.id}">
-      <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
+  const cards = orderedFigures.map((f, i) => {
+    const embedded = isFigureEmbedded(project, f.id);
+    return `
+    <div class="fig-card" data-fig-id="${f.id}">
       <div class="fig-thumb-wrap"><img src="${figureSrc(f)}" alt="${escapeHtml(f.fileName)}" /></div>
       <div class="fig-body">
         <div class="fig-head-row">
           <span class="fig-label">Fig. ${i+1}</span>
+          <span class="fig-embed-badge ${embedded ? 'is-embedded' : 'is-unplaced'}">${embedded ? '본문에 삽입됨' : '아직 미삽입'}</span>
           <div class="fig-actions">
-            <button title="위로" onclick="moveFigure('${f.id}',-1)" ${i===0?'disabled style="opacity:.3;"':''}>↑</button>
-            <button title="아래로" onclick="moveFigure('${f.id}',1)" ${i===figures.length-1?'disabled style="opacity:.3;"':''}>↓</button>
+            <button title="자르기" onclick="openFigureCropModal('${f.id}')">✂︎</button>
             <button class="fig-delete" title="삭제" onclick="removeFigure('${f.id}')">✕</button>
           </div>
         </div>
@@ -1541,11 +1656,12 @@ function renderFigureManager(project){
         <textarea class="fig-note-input" data-fig-id="${f.id}" placeholder="예: 배율을 더 높여서 다시 찍어야 함 / 대조군 이미지와 나란히 배치 예정">${escapeHtml(f.note||'')}</textarea>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   pane.innerHTML = `
     <div class="editor-head"><h2>Fig Ledger</h2><span class="section-limit">${figures.length}개</span></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">그림 파일을 업로드하고 캡션을 작성하세요. 업로드 순서대로 Fig. 1, 2, 3…으로 번호가 매겨지고, 카드를 끌어다 놓거나(⋮⋮) 화살표로 순서를 바꿀 수 있어요. 본문 섹션에서는 "＋ 그림 삽입" 버튼으로 커서 위치에 바로 넣을 수 있고, 순서를 바꾸면 본문에 이미 넣어둔 "Fig. N" 표기도 새 순서에 맞게 자동으로 업데이트돼요. Word로 내보내면 캡션과 함께 문서 끝에 포함됩니다.</div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">그림을 업로드하고 본문 섹션에서 "＋ 그림 삽입"으로 원하는 위치에 넣으세요. Fig 번호는 순서를 직접 정하는 게 아니라 <b>본문에 실제로 삽입된 순서</b>대로 자동으로 매겨져요 — 본문 어디에 넣었는지가 곧 번호가 되니, 삽입 순서만 신경 쓰면 번호가 뒤바뀔 일이 없어요. 아직 본문에 안 넣은 그림은 목록 아래쪽에 "미삽입"으로 표시돼요. 그림 카드의 ✂︎로 자르면 본문에 삽입된 그림도 바로 함께 바뀝니다.</div>
 
     <label class="fig-upload-zone" id="fig-drop-zone" for="fig-file-input">
       <div class="fig-upload-icon">＋</div>
@@ -1580,7 +1696,8 @@ function renderFigureManager(project){
       if(idx === -1) return;
       state.figures[idx].caption = e.target.value;
       scheduleFigureSave();
-      const changed = syncEmbeddedFigureCaption(project, figId, idx+1, e.target.value);
+      const num = figureNumberById(project, state.figures, figId);
+      const changed = syncEmbeddedFigureCaption(project, figId, num, e.target.value);
       if(changed) scheduleSave(project);
     });
   });
@@ -1590,29 +1707,6 @@ function renderFigureManager(project){
       const fig = (state.figures || []).find(f => f.id === e.target.dataset.figId);
       if(fig) fig.note = e.target.value;
       scheduleFigureSave();
-    });
-  });
-
-  // 카드 드래그 앤 드롭으로 순서 변경
-  let dragSrcId = null;
-  pane.querySelectorAll('.fig-card').forEach(card => {
-    card.addEventListener('dragstart', (e) => {
-      dragSrcId = card.dataset.figId;
-      card.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', card.dataset.figId);
-    });
-    card.addEventListener('dragend', () => card.classList.remove('dragging'));
-    card.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      if(card.dataset.figId !== dragSrcId) card.classList.add('drag-over');
-    });
-    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
-    card.addEventListener('drop', (e) => {
-      e.preventDefault();
-      card.classList.remove('drag-over');
-      const targetId = card.dataset.figId;
-      if(dragSrcId && dragSrcId !== targetId) reorderFigures(dragSrcId, targetId);
     });
   });
 }
@@ -1650,48 +1744,8 @@ async function uploadAndAddFigure(file){
   if(project) renderWorkspace(project);
 }
 
-async function moveFigure(id, dir){
-  const figures = state.figures || [];
-  const idx = figures.findIndex(f => f.id === id);
-  const target = idx + dir;
-  if(idx < 0 || target < 0 || target >= figures.length) return;
-  const oldIds = figures.map(f => f.id);
-  [figures[idx], figures[target]] = [figures[target], figures[idx]];
-  const newIds = figures.map(f => f.id);
-  const ok = await setFigures(state.currentProjectId, figures);
-  if(!ok) showToast('순서 저장에 실패했어요');
-  const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, figTokenMatcher, figTokenRender);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 그림 번호를 새 순서에 맞게 업데이트했어요');
-  }
-  renderWorkspace(project);
-}
-
-async function reorderFigures(srcId, targetId){
-  const figures = state.figures || [];
-  const srcIdx = figures.findIndex(f => f.id === srcId);
-  const targetIdx = figures.findIndex(f => f.id === targetId);
-  if(srcIdx === -1 || targetIdx === -1 || srcIdx === targetIdx) return;
-  const oldIds = figures.map(f => f.id);
-  const [moved] = figures.splice(srcIdx, 1);
-  figures.splice(targetIdx, 0, moved);
-  const newIds = figures.map(f => f.id);
-  const ok = await setFigures(state.currentProjectId, figures);
-  if(!ok) showToast('순서 저장에 실패했어요');
-  const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberTokensInProject(project, mapping, figTokenMatcher, figTokenRender);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 그림 번호를 새 순서에 맞게 업데이트했어요');
-  }
-  renderWorkspace(project);
-}
+// Fig 번호는 본문 삽입 순서로 자동 계산되므로(computeFigureOrder) Ledger에서
+// 수동으로 순서를 바꾸는 기능은 없앴다 — moveFigure/reorderFigures 삭제.
 
 /* ============== TABLE LEDGER (표 관리) ============== */
 function makeEmptyTable(){
@@ -2929,6 +2983,7 @@ function scheduleAuthorSave(){
 }
 
 async function removeFigure(id){
+  const beforeOrder = state.openProject ? computeFigureOrder(state.openProject, state.figures || []) : [];
   const removed = (state.figures || []).find(f => f.id === id);
   state.figures = (state.figures || []).filter(f => f.id !== id);
   const ok = await setFigures(state.currentProjectId, state.figures);
@@ -2937,7 +2992,149 @@ async function removeFigure(id){
     window.sb.storage.from('figures').remove([removed.storagePath]).catch(() => {}); // 실패해도 목록 삭제 자체는 이미 완료된 것으로 취급
   }
   const project = await getProject(state.currentProjectId);
-  if(project) renderWorkspace(project);
+  if(!project) return;
+  const strippedBody = stripEmbeddedFigure(project, id);
+  const renumbered = resyncFigureNumbering(beforeOrder, project, state.figures || []);
+  if(strippedBody || renumbered){
+    await setProject(project);
+    if(renumbered) showToast('남은 그림 번호를 새 순서에 맞게 업데이트했어요');
+  }
+  renderWorkspace(project);
+}
+
+/* ============== 그림 자르기(Crop) ============== */
+let cropState = null;
+
+function openFigureCropModal(figureId){
+  const fig = (state.figures || []).find(f => f.id === figureId);
+  if(!fig) return;
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this) closeCropModal()">
+    <div class="modal crop-modal">
+      <div class="modal-head"><h2>그림 자르기</h2><button class="modal-close" onclick="closeCropModal()">✕</button></div>
+      <div class="modal-body">
+        <div class="crop-hint">남길 영역을 이미지 위에서 드래그로 선택하세요. 본문에 이미 삽입돼 있다면 적용 즉시 그쪽도 같이 바뀝니다.</div>
+        <div class="crop-stage" id="crop-stage">
+          <img id="crop-img" src="${figureSrc(fig)}" crossorigin="anonymous" alt="" draggable="false" />
+          <div class="crop-select" id="crop-select" style="display:none;"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn secondary" onclick="closeCropModal()">취소</button>
+          <button class="btn" id="crop-apply-btn" disabled onclick="applyFigureCrop()">자르기 적용</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const stage = document.getElementById('crop-stage');
+
+  function pointerPos(e){
+    const r = stage.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(e.clientX - r.left, 0), r.width),
+      y: Math.min(Math.max(e.clientY - r.top, 0), r.height)
+    };
+  }
+  function updateSelectionRect(x, y, w, h){
+    const sel = document.getElementById('crop-select');
+    if(!sel) return;
+    const ok = w > 4 && h > 4;
+    sel.style.display = ok ? 'block' : 'none';
+    sel.style.left = x+'px'; sel.style.top = y+'px'; sel.style.width = w+'px'; sel.style.height = h+'px';
+    cropState.rect = ok ? { x, y, w, h } : null;
+    const btn = document.getElementById('crop-apply-btn');
+    if(btn) btn.disabled = !cropState.rect;
+  }
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    const p = pointerPos(e);
+    cropState.dragging = true;
+    cropState.startX = p.x; cropState.startY = p.y;
+    updateSelectionRect(p.x, p.y, 0, 0);
+  };
+  const onMouseMove = (e) => {
+    if(!cropState || !cropState.dragging) return;
+    const p = pointerPos(e);
+    updateSelectionRect(
+      Math.min(p.x, cropState.startX), Math.min(p.y, cropState.startY),
+      Math.abs(p.x - cropState.startX), Math.abs(p.y - cropState.startY)
+    );
+  };
+  const onMouseUp = () => { if(cropState) cropState.dragging = false; };
+
+  stage.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+
+  cropState = {
+    figureId, dragging:false, startX:0, startY:0, rect:null,
+    _cleanup: () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+  };
+}
+
+function closeCropModal(){
+  if(cropState && cropState._cleanup) cropState._cleanup();
+  cropState = null;
+  document.getElementById('modal-root').innerHTML = '';
+}
+
+async function applyFigureCrop(){
+  if(!cropState || !cropState.rect) return;
+  const { figureId, rect } = cropState;
+  const fig = (state.figures || []).find(f => f.id === figureId);
+  const img = document.getElementById('crop-img');
+  const btn = document.getElementById('crop-apply-btn');
+  if(!fig || !img) return;
+  if(!fig.storagePath){
+    showToast('예전 방식으로 저장된 그림이라 자르기를 지원하지 않아요. 다시 업로드해주세요');
+    return;
+  }
+  if(btn){ btn.disabled = true; btn.textContent = '자르는 중…'; }
+
+  const scaleX = img.naturalWidth / img.clientWidth;
+  const scaleY = img.naturalHeight / img.clientHeight;
+  const sx = Math.round(rect.x * scaleX);
+  const sy = Math.round(rect.y * scaleY);
+  const sw = Math.max(1, Math.round(rect.w * scaleX));
+  const sh = Math.max(1, Math.round(rect.h * scaleY));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sw; canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  canvas.toBlob(async (blob) => {
+    if(!blob){
+      showToast('자르기에 실패했어요');
+      if(btn){ btn.disabled = false; btn.textContent = '자르기 적용'; }
+      return;
+    }
+    const { error: uploadError } = await window.sb.storage.from('figures').upload(fig.storagePath, blob, { contentType:'image/png', upsert:true });
+    if(uploadError){
+      showToast('자르기 적용에 실패했어요: ' + (uploadError.message || '다시 시도해주세요'));
+      if(btn){ btn.disabled = false; btn.textContent = '자르기 적용'; }
+      return;
+    }
+    const { data: pub } = window.sb.storage.from('figures').getPublicUrl(fig.storagePath);
+    // 저장 경로는 그대로라 URL 문자열이 같으면 브라우저가 예전 캐시를 보여줄 수
+    // 있다 — 버전 쿼리를 붙여 강제로 새로 받아오게 한다.
+    const newUrl = pub.publicUrl + (pub.publicUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    fig.url = newUrl;
+    const figOk = await setFigures(state.currentProjectId, state.figures);
+    if(!figOk) showToast('그림 정보 저장에 실패했어요');
+
+    const project = state.openProject;
+    if(project && syncEmbeddedFigureImage(project, figureId, newUrl)){
+      await setProject(project);
+    }
+    closeCropModal();
+    showToast('그림을 잘랐어요');
+    const proj2 = await getProject(state.currentProjectId);
+    if(proj2) renderWorkspace(proj2);
+  }, 'image/png');
 }
 
 function scheduleFigureSave(){
@@ -3430,7 +3627,9 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     }
   }
 
-  const appendixFigures = (figures||[]).map((f,i) => ({ ...f, num:i+1 })).filter(f => !embeddedFigureIds.has(f.id));
+  const figureOrder = computeFigureOrder(project, figures);
+  const figureNumById = new Map(figureOrder.map((id, i) => [id, i+1]));
+  const appendixFigures = (figures||[]).filter(f => !embeddedFigureIds.has(f.id)).map(f => ({ ...f, num: figureNumById.get(f.id) || 0 }));
   if(appendixFigures.length){
     body += `<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`;
     body += pHeading('Figures');
