@@ -1859,8 +1859,6 @@ function renderTableManager(project){
       </div>
       <label class="fig-field-label">캡션 (표 위에 표시됨, 본문·Word 내보내기에 포함)</label>
       <textarea class="fig-caption-input tbl-caption-input" data-table-id="${t.id}" placeholder="캡션을 입력하세요 (예: Chemistry composition of designed alloy, wt%.)">${escapeHtml(t.caption||'')}</textarea>
-      <label class="fig-field-label fig-field-label-note">팀 댓글</label>
-      ${renderItemThreadHtml('table', t.id)}
       <div class="tbl-grid-wrap">
         <table class="tbl-edit-grid">
           <thead><tr>${headHtml}<th class="tbl-grid-actions"><button title="열 추가" onclick="addTableColumn('${t.id}')">＋</button></th></tr></thead>
@@ -1868,6 +1866,8 @@ function renderTableManager(project){
         </table>
       </div>
       <button class="btn secondary small" style="margin-top:8px;align-self:flex-start;" onclick="addTableRow('${t.id}')">＋ 행 추가</button>
+      <label class="fig-field-label fig-field-label-note" style="margin-top:12px;">팀 댓글</label>
+      ${renderItemThreadHtml('table', t.id)}
     </div>`;
   }).join('');
 
