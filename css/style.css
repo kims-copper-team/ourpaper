@@ -266,10 +266,9 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .ms-section:last-child{ border-bottom:none; padding-bottom:8px; }
 .ms-section.presence-glow{
   border-radius:var(--radius);
-  outline:2px solid var(--presence-color, transparent);
-  box-shadow:0 0 0 3px color-mix(in srgb, var(--presence-color, transparent) 18%, transparent),
-             0 0 12px 2px color-mix(in srgb, var(--presence-color, transparent) 28%, transparent);
-  transition:outline-color .25s, box-shadow .25s;
+  box-shadow:0 0 8px 3px color-mix(in srgb, var(--presence-color, transparent) 45%, transparent),
+             0 0 24px 6px color-mix(in srgb, var(--presence-color, transparent) 22%, transparent);
+  transition:box-shadow .25s;
 }
 .editor-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
 .editor-head h2{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:20px; margin:0; font-weight:600; }
