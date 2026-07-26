@@ -271,6 +271,36 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
   transition:box-shadow .25s;
 }
 
+/* 섹션 잠금 배너 */
+.section-lock-banner{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:7px 12px; margin-bottom:10px;
+  background:color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius:var(--radius); font-size:12px; color:var(--ink-soft);
+  border-left:3px solid var(--line-strong);
+}
+.section-lock-banner strong{ color:var(--ink); }
+.lock-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.lock-request-btn{ margin-left:auto !important; }
+
+/* 편집 권한 요청 알림 (수신자용) */
+.edit-request-notif{
+  position:fixed; top:24px; left:50%; transform:translateX(-50%);
+  background:var(--paper-card); border:1.5px solid var(--brand);
+  border-radius:var(--radius); padding:14px 18px;
+  box-shadow:0 4px 24px rgba(0,0,0,.18); z-index:10000; max-width:340px; width:90vw;
+  animation:editReqSlide .22s ease;
+}
+.edit-request-notif-body{ font-size:13px; color:var(--ink); line-height:1.5; }
+.edit-request-actions{ display:flex; gap:8px; margin-top:10px; }
+@keyframes editReqSlide{
+  from{ opacity:0; transform:translateX(-50%) translateY(-10px); }
+  to{ opacity:1; transform:translateX(-50%) translateY(0); }
+}
+
+/* 팔로우 버튼이 있는 presence panel */
+.presence-panel-row{ gap:8px; }
+
 /* 원격 사용자 커서 */
 .remote-cursor{
   position:fixed;

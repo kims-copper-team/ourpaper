@@ -43,7 +43,8 @@ let state = {
   itemComments:[],
   activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
   openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
-  realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{}
+  realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{},
+  followingUserId:null // 화면 따라가기 대상 userId
 };
 
 const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__', '__comments__'];
@@ -55,6 +56,8 @@ const _lastTypedAt = {};
 let _selectionChangeHandler = null;
 // 채널 헬스체크 인터벌
 let _realtimeHealthTimer = null;
+// 내가 현재 섹션에 입장한 시각 (잠금 우선권 계산용)
+let _mySectionAt = 0;
 
 /* ============== STORAGE HELPERS (Supabase, 관계형) ==============
  * 예전에는 project/figures/refs/authors/tables가 각자 독립된 key-value
@@ -759,6 +762,7 @@ function renderWorkspace(project){
   // 이미 알고 있는 presenceUsers로 즉시 복원한다.
   renderPresenceBar();
   refreshTocPresenceDots();
+  applySectionLocks();
 }
 
 function referencesSectionInnerHtml(sec){
@@ -1012,6 +1016,9 @@ function joinProjectRealtime(projectId){
   });
   channel.on('broadcast', { event:'edit' }, (msg) => handleRemoteEdit(msg.payload));
   channel.on('broadcast', { event:'cursor' }, (msg) => handleRemoteCursor(msg.payload));
+  channel.on('broadcast', { event:'edit_request' }, (msg) => handleEditRequest(msg.payload));
+  channel.on('broadcast', { event:'edit_grant' }, (msg) => handleEditGrant(msg.payload));
+  channel.on('broadcast', { event:'edit_deny' }, (msg) => handleEditDeny(msg.payload));
   channel.on('broadcast', { event:'highlight' }, (msg) => handleRemoteHighlightEvent(msg.payload));
   channel.on('broadcast', { event:'item_comment' }, (msg) => handleRemoteItemCommentEvent(msg.payload));
   channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
@@ -1100,16 +1107,30 @@ function updatePresenceFromChannel(channel){
   state.presenceUsers = users;
   renderPresenceBar();
   refreshTocPresenceDots();
+  applySectionLocks();
+
+  // 팔로우 중인 유저가 섹션을 이동하면 따라감
+  if(state.followingUserId){
+    const followed = users[state.followingUserId];
+    if(followed && followed.sectionKey && !isLedgerKey(followed.sectionKey) &&
+       followed.sectionKey !== state.currentSectionKey){
+      state.currentSectionKey = followed.sectionKey;
+      scrollToSection(followed.sectionKey, true);
+      setActiveTocItem(followed.sectionKey);
+      updateMyPresenceSection(followed.sectionKey, true);
+    }
+  }
 }
 
-function updateMyPresenceSection(sectionKey){
+function updateMyPresenceSection(sectionKey, isFollowing){
+  _mySectionAt = Date.now();
   if(!state.realtimeChannel || !state.currentUser) return;
   state.realtimeChannel.track({
     userId: state.currentUser.id,
     email: state.currentUser.email,
     displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
     color: colorForUser(state.currentUser.id),
-    sectionKey, at: Date.now()
+    sectionKey, following: !!isFollowing, at: _mySectionAt
   });
 }
 
@@ -1302,12 +1323,16 @@ function renderPresencePanel(users, secLabel){
   }
   panel.innerHTML = `<div class="presence-panel-title">지금 함께 접속 중</div>` + users.map(u => {
     const sec = secLabel(u.sectionKey);
+    const isFollowing = state.followingUserId === u.userId;
     return `<div class="presence-panel-row">
       <span class="presence-avatar" style="background:${u.color}22;color:${u.color};border-color:${u.color};width:26px;height:26px;font-size:11px;">${escapeHtml(((u.displayName || u.email || '?').trim()[0] || '?').toUpperCase())}</span>
-      <div>
+      <div style="flex:1;min-width:0;">
         <div style="font-weight:600;font-size:12.5px;color:${u.color};">${escapeHtml(u.displayName || u.email || '?')}</div>
         ${sec ? `<div style="font-size:11px;color:var(--ink-faint);">${escapeHtml(sec)} 섹션 보는 중</div>` : ''}
       </div>
+      <button class="btn ${isFollowing?'primary':'secondary'} small" onclick="toggleFollowUser('${u.userId}')" title="${isFollowing?'팔로우 중단':'화면 따라가기'}">
+        ${isFollowing ? '팔로잉' : '따라가기'}
+      </button>
     </div>`;
   }).join('');
 }
@@ -1367,6 +1392,155 @@ function refreshTocPresenceDots(){
     seen.add(u.sectionKey);
   });
 }
+
+/* ─── 섹션 잠금 & 편집 권한 요청 ─── */
+
+function applySectionLocks(){
+  // 다른 유저(팔로우 중 아닌)가 점유 중인 섹션 맵
+  const lockedBy = {};
+  Object.values(state.presenceUsers || {}).forEach(u => {
+    if(u.sectionKey && !u.following) lockedBy[u.sectionKey] = u;
+  });
+
+  document.querySelectorAll('[id^="sec-content-input-"]').forEach(el => {
+    const sectionKey = el.id.replace('sec-content-input-', '');
+    const locker = lockedBy[sectionKey];
+    const section = el.closest('.ms-section');
+    if(!section) return;
+
+    section.querySelector('.section-lock-banner')?.remove();
+
+    let shouldLock = false;
+    if(locker){
+      if(state.currentSectionKey !== sectionKey){
+        shouldLock = true; // 내가 이 섹션을 선택하지 않음
+      } else {
+        // 내가 이 섹션을 보고 있음 → 잠금은 locker가 나보다 먼저 들어온 경우만
+        shouldLock = (locker.at || 0) < _mySectionAt;
+      }
+    }
+
+    if(shouldLock){
+      el.contentEditable = 'false';
+      const banner = document.createElement('div');
+      banner.className = 'section-lock-banner';
+      banner.innerHTML = `
+        <span class="lock-dot" style="background:${locker.color || '#888'}"></span>
+        <span><strong>${escapeHtml(locker.displayName || locker.email || '')}</strong> 편집 중</span>
+        <button class="btn secondary small lock-request-btn" onclick="requestSectionEdit('${sectionKey}','${locker.userId}')">편집 권한 요청</button>
+      `;
+      const header = section.querySelector('.ms-section-header');
+      if(header) header.after(banner);
+      else section.insertBefore(banner, el);
+    } else {
+      el.contentEditable = 'true';
+    }
+  });
+}
+
+function requestSectionEdit(sectionKey, toUserId){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'edit_request',
+    payload:{
+      sectionKey, toUserId,
+      fromUserId: state.currentUser.id,
+      fromDisplayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email
+    }
+  });
+  showToast('편집 권한을 요청했어요');
+}
+
+function handleEditRequest(payload){
+  const { sectionKey, toUserId, fromUserId, fromDisplayName } = payload || {};
+  if(!toUserId || toUserId !== (state.currentUser && state.currentUser.id)) return;
+  if(state.currentSectionKey !== sectionKey) return;
+
+  const existingNotif = document.getElementById('edit-request-notif');
+  if(existingNotif) existingNotif.remove();
+
+  const notif = document.createElement('div');
+  notif.id = 'edit-request-notif';
+  notif.className = 'edit-request-notif';
+  notif.innerHTML = `
+    <div class="edit-request-notif-body">
+      <strong>${escapeHtml(fromDisplayName || fromUserId || '누군가')}</strong>가 이 섹션의 편집 권한을 요청했어요
+      <div class="edit-request-actions">
+        <button class="btn primary small" onclick="grantSectionEdit('${sectionKey}','${fromUserId}',document.getElementById('edit-request-notif'))">수락</button>
+        <button class="btn secondary small" onclick="denySectionEdit('${sectionKey}','${fromUserId}',document.getElementById('edit-request-notif'))">거절</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(notif);
+  setTimeout(() => { if(notif.parentNode) notif.remove(); }, 30000);
+}
+
+function grantSectionEdit(sectionKey, toUserId, notifEl){
+  if(notifEl) notifEl.remove();
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'edit_grant',
+    payload:{ sectionKey, toUserId, fromUserId: state.currentUser.id }
+  });
+  // 내 잠금 해제 (현재 섹션을 null로)
+  state.currentSectionKey = null;
+  updateMyPresenceSection(null);
+  applySectionLocks();
+  showToast('편집 권한을 넘겼어요');
+}
+
+function denySectionEdit(sectionKey, toUserId, notifEl){
+  if(notifEl) notifEl.remove();
+  if(!state.realtimeChannel || !state.currentUser) return;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'edit_deny',
+    payload:{ sectionKey, toUserId, fromUserId: state.currentUser.id }
+  });
+}
+
+function handleEditGrant(payload){
+  const { sectionKey, toUserId, fromUserId } = payload || {};
+  if(!toUserId || toUserId !== (state.currentUser && state.currentUser.id)) return;
+  showToast('편집 권한을 받았어요! 이제 편집할 수 있어요');
+  // 낙관적 잠금 해제
+  if(fromUserId && state.presenceUsers[fromUserId]){
+    state.presenceUsers[fromUserId].sectionKey = null;
+  }
+  _mySectionAt = Date.now();
+  applySectionLocks();
+}
+
+function handleEditDeny(payload){
+  const { sectionKey, toUserId } = payload || {};
+  if(!toUserId || toUserId !== (state.currentUser && state.currentUser.id)) return;
+  showToast('편집 요청이 거절됐어요');
+}
+
+/* ─── 팔로우(화면 따라가기) ─── */
+
+function toggleFollowUser(userId){
+  if(state.followingUserId === userId){
+    state.followingUserId = null;
+    showToast('팔로우를 중단했어요');
+    updateMyPresenceSection(state.currentSectionKey, false);
+  } else {
+    state.followingUserId = userId;
+    showToast('화면을 따라가고 있어요');
+    const followed = state.presenceUsers[userId];
+    if(followed && followed.sectionKey && !isLedgerKey(followed.sectionKey)){
+      state.currentSectionKey = followed.sectionKey;
+      scrollToSection(followed.sectionKey, true);
+      setActiveTocItem(followed.sectionKey);
+      updateMyPresenceSection(followed.sectionKey, true);
+    }
+  }
+  // presence panel 갱신
+  renderPresenceBar();
+  const panel = document.getElementById('presence-panel');
+  if(panel && panel.classList.contains('open')) togglePresencePanel();
+}
+
+/* ─────────────────────────────── */
 
 /* ============== 삽입 패널 (그림/인용 삽입) — 편집 영역 흐름 안에 직접 삽입/제거 ============== */
 function buildFigureInsertPanel(){
