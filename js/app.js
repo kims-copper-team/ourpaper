@@ -833,11 +833,9 @@ function renderManuscriptCanvas(project, isCustom){
     // 큐에 쌓아뒀다가(handleRemoteEdit 참고), 포커스를 벗어나는 시점에
     // 반영한다 — 타이핑 중간에 커서 아래 텍스트가 바뀌는 걸 막기 위함.
     contentInput.addEventListener('blur', () => {
-      const pending = state.pendingRemoteEdits[sec.key];
-      if(pending !== undefined){
-        delete state.pendingRemoteEdits[sec.key];
-        applyRemoteEditToSection(sec.key, pending);
-      }
+      // 같은 섹션을 동시에 편집하다 blur했을 때 상대방 버전으로 내 글을 덮어쓰지 않는다.
+      // 마지막으로 DB에 저장한 사람이 최종 버전이 되며, 상대방은 다음 broadcast에서 받는다.
+      delete state.pendingRemoteEdits[sec.key];
     });
 
     const broadcastThrottled = throttleTrailing((html) => broadcastSectionEdit(sec.key, html), 150);
@@ -1016,6 +1014,9 @@ function joinProjectRealtime(projectId){
         sectionKey: state.currentSectionKey || null,
         at: Date.now()
       });
+      // track() 후 sync 이벤트가 비동기로 오는데, 이미 접속 중인 사람이 있으면
+      // 즉시 한 번 더 읽어서 presence bar를 바로 채운다.
+      updatePresenceFromChannel(channel);
     }
   });
   state.realtimeChannel = channel;
@@ -1071,10 +1072,8 @@ function handleRemoteEdit(payload){
   if(state.openProject) state.openProject.content[sectionKey] = html;
   const el = document.getElementById('sec-content-input-' + sectionKey);
   if(!el) return;
-  if(document.activeElement === el){
-    state.pendingRemoteEdits[sectionKey] = html; // 내가 타이핑 중이면 blur 때까지 보류
-    return;
-  }
+  // 내가 지금 이 섹션을 편집 중이면 덮어쓰지 않는다 (충돌 방지)
+  if(document.activeElement === el) return;
   applyRemoteEditToSection(sectionKey, html);
 }
 
