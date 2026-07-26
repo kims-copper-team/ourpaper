@@ -1026,10 +1026,17 @@ function joinProjectRealtime(projectId){
       // track() 후 sync 이벤트가 비동기로 오는데, 이미 접속 중인 사람이 있으면
       // 즉시 한 번 더 읽어서 presence bar를 바로 채운다.
       updatePresenceFromChannel(channel);
+    } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+      // 채널이 에러/타임아웃으로 죽은 경우 2초 후 재접속
+      setTimeout(() => {
+        if(state.currentProjectId && state.realtimeChannel === channel){
+          joinProjectRealtime(state.currentProjectId);
+        }
+      }, 2000);
     }
   });
 
-  // 커서 위치를 50ms 간격으로 브로드캐스트
+  // 커서 위치를 100ms 간격으로 브로드캐스트 (너무 빠르면 rate limit)
   const broadcastCursorThrottled = throttleTrailing(() => {
     const activeEl = document.activeElement;
     if(!activeEl || !activeEl.id || !activeEl.id.startsWith('sec-content-input-')) return;
@@ -1045,7 +1052,7 @@ function joinProjectRealtime(projectId){
         cursorOffset: getCaretCharOffset(activeEl)
       }
     });
-  }, 50);
+  }, 100);
   _selectionChangeHandler = broadcastCursorThrottled;
   document.addEventListener('selectionchange', _selectionChangeHandler);
 
@@ -4923,6 +4930,17 @@ onAuthStateChange((event) => {
 });
 
 window.addEventListener('beforeunload', () => { leaveProjectRealtime(); });
+
+// 탭을 다시 활성화했을 때 채널이 죽어 있으면 재접속
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible') return;
+  if(!state.currentProjectId || !state.currentUser) return;
+  const ch = state.realtimeChannel;
+  if(!ch || ch.state !== 'joined'){
+    joinProjectRealtime(state.currentProjectId);
+  }
+});
+
 initSelectionHighlightUI();
 
 (async function initApp(){
