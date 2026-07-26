@@ -53,6 +53,8 @@ function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
 const _lastTypedAt = {};
 // selectionchange 리스너 참조 (removeEventListener용)
 let _selectionChangeHandler = null;
+// 채널 헬스체크 인터벌
+let _realtimeHealthTimer = null;
 
 /* ============== STORAGE HELPERS (Supabase, 관계형) ==============
  * 예전에는 project/figures/refs/authors/tables가 각자 독립된 key-value
@@ -1057,9 +1059,21 @@ function joinProjectRealtime(projectId){
   document.addEventListener('selectionchange', _selectionChangeHandler);
 
   state.realtimeChannel = channel;
+
+  // 20초마다 채널 상태 확인 → 죽어 있으면 재접속
+  clearInterval(_realtimeHealthTimer);
+  _realtimeHealthTimer = setInterval(() => {
+    if(!state.currentProjectId || !state.currentUser) return;
+    const ch = state.realtimeChannel;
+    if(!ch || ch.state !== 'joined'){
+      joinProjectRealtime(state.currentProjectId);
+    }
+  }, 20000);
 }
 
 function leaveProjectRealtime(){
+  clearInterval(_realtimeHealthTimer);
+  _realtimeHealthTimer = null;
   if(_selectionChangeHandler){
     document.removeEventListener('selectionchange', _selectionChangeHandler);
     _selectionChangeHandler = null;
@@ -1311,21 +1325,45 @@ function togglePresencePanel(){
 }
 
 function refreshTocPresenceDots(){
+  // TOC dot 초기화
+  document.querySelectorAll('.toc-dot[data-presence]').forEach(dot => {
+    dot.removeAttribute('data-presence');
+    dot.style.removeProperty('background');
+    dot.style.removeProperty('box-shadow');
+    dot.title = '';
+  });
   // 본문 섹션 글로우 초기화
   document.querySelectorAll('.ms-section.presence-glow').forEach(el => {
     el.classList.remove('presence-glow');
     el.style.removeProperty('--presence-color');
     el.title = '';
   });
-  // 섹션별 첫 번째 접속자 색상으로 네온 글로우 적용
+  // 섹션별 첫 번째 접속자 색상으로 TOC dot + 본문 네온 글로우 적용
   const seen = new Set();
   Object.values(state.presenceUsers || {}).forEach(u => {
     if(!u.sectionKey || seen.has(u.sectionKey)) return;
+    const label = (u.displayName || u.email || '') + ' 접속 중';
+
+    // TOC dot
+    const btn = document.querySelector(`.toc-item[data-section-key="${u.sectionKey}"]`);
+    if(btn){
+      const dot = btn.querySelector('.toc-dot');
+      if(dot){
+        dot.setAttribute('data-presence', '1');
+        dot.style.background = u.color;
+        dot.style.boxShadow = `0 0 5px 1px ${u.color}`;
+        dot.title = label;
+      }
+    }
+
+    // 본문 section glow
     const sec = document.getElementById('ms-section-' + u.sectionKey);
-    if(!sec) return;
-    sec.style.setProperty('--presence-color', u.color);
-    sec.classList.add('presence-glow');
-    sec.title = (u.displayName || u.email || '') + ' 편집 중';
+    if(sec){
+      sec.style.setProperty('--presence-color', u.color);
+      sec.classList.add('presence-glow');
+      sec.title = label;
+    }
+
     seen.add(u.sectionKey);
   });
 }
@@ -4931,15 +4969,16 @@ onAuthStateChange((event) => {
 
 window.addEventListener('beforeunload', () => { leaveProjectRealtime(); });
 
-// 탭을 다시 활성화했을 때 채널이 죽어 있으면 재접속
-document.addEventListener('visibilitychange', () => {
-  if(document.visibilityState !== 'visible') return;
+// 탭을 다시 활성화하거나 네트워크가 복구됐을 때 채널이 죽어 있으면 재접속
+function maybeReconnectRealtime(){
   if(!state.currentProjectId || !state.currentUser) return;
   const ch = state.realtimeChannel;
-  if(!ch || ch.state !== 'joined'){
-    joinProjectRealtime(state.currentProjectId);
-  }
+  if(!ch || ch.state !== 'joined') joinProjectRealtime(state.currentProjectId);
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') maybeReconnectRealtime();
 });
+window.addEventListener('online', maybeReconnectRealtime);
 
 initSelectionHighlightUI();
 
