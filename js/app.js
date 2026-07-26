@@ -748,6 +748,10 @@ function renderWorkspace(project){
       applyResolvedMarkClasses();
     });
   }
+  // renderWorkspace가 HTML을 통째로 교체하면 presence-bar가 빈 상태로 초기화됨.
+  // 이미 알고 있는 presenceUsers로 즉시 복원한다.
+  renderPresenceBar();
+  refreshTocPresenceDots();
 }
 
 function referencesSectionInnerHtml(sec){
@@ -1063,8 +1067,10 @@ function broadcastSectionEdit(sectionKey, html){
 function handleRemoteEdit(payload){
   const { sectionKey, html, fromUserId } = payload || {};
   if(!sectionKey || fromUserId === (state.currentUser && state.currentUser.id)) return;
+  // Ledger 뷰일 때도 메모리(openProject)는 항상 최신으로 유지 → 나중에 캔버스를 렌더할 때 반영됨
+  if(state.openProject) state.openProject.content[sectionKey] = html;
   const el = document.getElementById('sec-content-input-' + sectionKey);
-  if(!el) return; // 지금 다른 화면(Ledger 등)을 보고 있으면 그냥 무시 — 저장은 상대방이 알아서 함
+  if(!el) return;
   if(document.activeElement === el){
     state.pendingRemoteEdits[sectionKey] = html; // 내가 타이핑 중이면 blur 때까지 보류
     return;
@@ -4034,12 +4040,16 @@ async function selectSection(key){
   // 포커스/상태를 건드리지 않기 위함.
   const canvasAlreadyRendered = !isLedgerKey(state.currentSectionKey) && !!document.querySelector('.ms-section');
   state.currentSectionKey = key;
+  updateMyPresenceSection(key);
   if(canvasAlreadyRendered){
     scrollToSection(key, true);
     setActiveTocItem(key);
     return;
   }
-  const project = await getProject(state.currentProjectId);
+  // Ledger에서 돌아올 때: DB 재조회 대신 메모리(openProject) 우선 사용.
+  // handleRemoteEdit이 Ledger 뷰에서도 openProject를 최신으로 유지하기 때문에
+  // 브로드캐스트된 편집 내용이 DB 저장(500ms debounce) 전에도 반영된다.
+  const project = state.openProject || await getProject(state.currentProjectId);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   renderWorkspace(project);
 }
