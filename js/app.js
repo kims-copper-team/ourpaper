@@ -1152,19 +1152,21 @@ function togglePresencePanel(){
 }
 
 function refreshTocPresenceDots(){
-  // 모든 탭 테두리 초기화
-  document.querySelectorAll('.toc-item').forEach(btn => {
-    btn.style.borderLeftColor = '';
-    btn.title = '';
+  // 본문 섹션 글로우 초기화
+  document.querySelectorAll('.ms-section.presence-glow').forEach(el => {
+    el.classList.remove('presence-glow');
+    el.style.removeProperty('--presence-color');
+    el.title = '';
   });
-  // 섹션별로 첫 번째 접속자 색상을 border-left에 적용
+  // 섹션별 첫 번째 접속자 색상으로 네온 글로우 적용
   const seen = new Set();
   Object.values(state.presenceUsers || {}).forEach(u => {
     if(!u.sectionKey || seen.has(u.sectionKey)) return;
-    const btn = document.querySelector(`.toc-item[data-section-key="${u.sectionKey}"]`);
-    if(!btn) return;
-    btn.style.borderLeftColor = u.color;
-    btn.title = (u.displayName || u.email || '') + ' 편집 중';
+    const sec = document.getElementById('ms-section-' + u.sectionKey);
+    if(!sec) return;
+    sec.style.setProperty('--presence-color', u.color);
+    sec.classList.add('presence-glow');
+    sec.title = (u.displayName || u.email || '') + ' 편집 중';
     seen.add(u.sectionKey);
   });
 }
