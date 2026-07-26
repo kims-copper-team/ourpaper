@@ -1091,7 +1091,9 @@ function leaveProjectRealtime(){
   state.realtimeChannel = null;
   state.presenceUsers = {};
   state.pendingRemoteEdits = {};
+  state.followingUserId = null;
   removeRemoteCursors();
+  renderFollowBadge(); // 배지 제거
 }
 
 function updatePresenceFromChannel(channel){
@@ -1120,6 +1122,7 @@ function updatePresenceFromChannel(channel){
       updateMyPresenceSection(followed.sectionKey, true);
     }
   }
+  renderFollowBadge();
 }
 
 function updateMyPresenceSection(sectionKey, isFollowing){
@@ -1521,11 +1524,9 @@ function handleEditDeny(payload){
 function toggleFollowUser(userId){
   if(state.followingUserId === userId){
     state.followingUserId = null;
-    showToast('팔로우를 중단했어요');
     updateMyPresenceSection(state.currentSectionKey, false);
   } else {
     state.followingUserId = userId;
-    showToast('화면을 따라가고 있어요');
     const followed = state.presenceUsers[userId];
     if(followed && followed.sectionKey && !isLedgerKey(followed.sectionKey)){
       state.currentSectionKey = followed.sectionKey;
@@ -1534,10 +1535,40 @@ function toggleFollowUser(userId){
       updateMyPresenceSection(followed.sectionKey, true);
     }
   }
-  // presence panel 갱신
+  renderFollowBadge();
   renderPresenceBar();
   const panel = document.getElementById('presence-panel');
   if(panel && panel.classList.contains('open')) togglePresencePanel();
+}
+
+function renderFollowBadge(){
+  const existing = document.getElementById('follow-badge');
+  if(!state.followingUserId){
+    if(existing) existing.remove();
+    return;
+  }
+  const followed = state.presenceUsers[state.followingUserId];
+  const name = followed ? (followed.displayName || followed.email || '?') : '?';
+  const color = followed ? (followed.color || 'var(--brand)') : 'var(--brand)';
+  const secLabel = (() => {
+    if(!followed || !followed.sectionKey || !state.openProject) return '';
+    const secs = getSections(state.openProject);
+    const s = secs.find(x => x.key === followed.sectionKey);
+    return s ? s.label : '';
+  })();
+
+  let badge = existing;
+  if(!badge){
+    badge = document.createElement('div');
+    badge.id = 'follow-badge';
+    badge.className = 'follow-badge';
+    document.body.appendChild(badge);
+  }
+  badge.innerHTML = `
+    <span class="follow-badge-dot" style="background:${color}"></span>
+    <span><strong>${escapeHtml(name)}</strong> 따라가는 중${secLabel ? ' · ' + escapeHtml(secLabel) : ''}</span>
+    <button class="follow-badge-stop" onclick="toggleFollowUser('${state.followingUserId}')">중단 ✕</button>
+  `;
 }
 
 /* ─────────────────────────────── */

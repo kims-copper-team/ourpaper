@@ -301,6 +301,27 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 /* 팔로우 버튼이 있는 presence panel */
 .presence-panel-row{ gap:8px; }
 
+/* 팔로우 중 플로팅 배지 */
+.follow-badge{
+  position:fixed; bottom:28px; right:24px; z-index:9000;
+  display:flex; align-items:center; gap:8px;
+  background:var(--ink); color:var(--paper-card);
+  padding:8px 10px 8px 14px; border-radius:20px;
+  font-size:12px; box-shadow:0 3px 14px rgba(0,0,0,.28);
+  animation:followBadgeIn .2s ease;
+}
+.follow-badge-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.follow-badge-stop{
+  background:rgba(255,255,255,.18); border:none; color:inherit;
+  padding:3px 9px; border-radius:12px; font-size:11px; cursor:pointer;
+  margin-left:2px; flex-shrink:0;
+}
+.follow-badge-stop:hover{ background:rgba(255,255,255,.32); }
+@keyframes followBadgeIn{
+  from{ opacity:0; transform:translateY(8px); }
+  to{ opacity:1; transform:translateY(0); }
+}
+
 /* 원격 사용자 커서 */
 .remote-cursor{
   position:fixed;
