@@ -270,6 +270,32 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
              0 0 24px 6px color-mix(in srgb, var(--presence-color, transparent) 22%, transparent);
   transition:box-shadow .25s;
 }
+
+/* 원격 사용자 커서 */
+.remote-cursor{
+  position:fixed;
+  width:2px;
+  background-color:var(--cursor-color, #888);
+  pointer-events:none;
+  z-index:9999;
+  animation:remoteCursorBlink 1s step-end infinite;
+}
+.remote-cursor-label{
+  position:absolute;
+  top:-20px;
+  left:0;
+  font-size:10px;
+  color:#fff;
+  padding:1px 5px;
+  border-radius:3px;
+  white-space:nowrap;
+  pointer-events:none;
+  font-family:var(--font-ui, sans-serif);
+}
+@keyframes remoteCursorBlink{
+  0%,100%{ opacity:1; }
+  50%{ opacity:0; }
+}
 .editor-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
 .editor-head h2{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:20px; margin:0; font-weight:600; }
 .section-limit{ font-family:'Courier New', '맑은 고딕', monospace; font-size:11px; color:var(--ink-faint); white-space:nowrap; }

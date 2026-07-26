@@ -49,6 +49,11 @@ let state = {
 const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__', '__comments__'];
 function isLedgerKey(key){ return LEDGER_KEYS.includes(key); }
 
+// 실시간 협업: 마지막으로 키를 입력한 시각 (sectionKey → timestamp)
+const _lastTypedAt = {};
+// selectionchange 리스너 참조 (removeEventListener용)
+let _selectionChangeHandler = null;
+
 /* ============== STORAGE HELPERS (Supabase, 관계형) ==============
  * 예전에는 project/figures/refs/authors/tables가 각자 독립된 key-value
  * 레코드였다. 지금은 전부 projects 테이블 한 행(row)의 컬럼이고, RLS가
@@ -838,9 +843,12 @@ function renderManuscriptCanvas(project, isCustom){
       delete state.pendingRemoteEdits[sec.key];
     });
 
-    const broadcastThrottled = throttleTrailing((html) => broadcastSectionEdit(sec.key, html), 150);
+    const broadcastThrottled = throttleTrailing((html) => {
+      broadcastSectionEdit(sec.key, html, getCaretCharOffset(contentInput));
+    }, 150);
 
     contentInput.addEventListener('input', ()=>{
+      _lastTypedAt[sec.key] = Date.now();
       project.content[sec.key] = contentInput.innerHTML;
       const plain = contentInput.textContent || '';
       contentInput.classList.toggle('is-empty', plain.trim().length === 0);
@@ -1001,6 +1009,7 @@ function joinProjectRealtime(projectId){
     config: { broadcast: { self: false }, presence: { key: state.currentUser.id } }
   });
   channel.on('broadcast', { event:'edit' }, (msg) => handleRemoteEdit(msg.payload));
+  channel.on('broadcast', { event:'cursor' }, (msg) => handleRemoteCursor(msg.payload));
   channel.on('broadcast', { event:'highlight' }, (msg) => handleRemoteHighlightEvent(msg.payload));
   channel.on('broadcast', { event:'item_comment' }, (msg) => handleRemoteItemCommentEvent(msg.payload));
   channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
@@ -1019,16 +1028,42 @@ function joinProjectRealtime(projectId){
       updatePresenceFromChannel(channel);
     }
   });
+
+  // 커서 위치를 50ms 간격으로 브로드캐스트
+  const broadcastCursorThrottled = throttleTrailing(() => {
+    const activeEl = document.activeElement;
+    if(!activeEl || !activeEl.id || !activeEl.id.startsWith('sec-content-input-')) return;
+    const sectionKey = activeEl.id.replace('sec-content-input-', '');
+    if(!state.currentUser) return;
+    channel.send({
+      type:'broadcast', event:'cursor',
+      payload:{
+        sectionKey,
+        fromUserId: state.currentUser.id,
+        color: colorForUser(state.currentUser.id),
+        displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
+        cursorOffset: getCaretCharOffset(activeEl)
+      }
+    });
+  }, 50);
+  _selectionChangeHandler = broadcastCursorThrottled;
+  document.addEventListener('selectionchange', _selectionChangeHandler);
+
   state.realtimeChannel = channel;
 }
 
 function leaveProjectRealtime(){
+  if(_selectionChangeHandler){
+    document.removeEventListener('selectionchange', _selectionChangeHandler);
+    _selectionChangeHandler = null;
+  }
   if(state.realtimeChannel && window.sb){
     window.sb.removeChannel(state.realtimeChannel);
   }
   state.realtimeChannel = null;
   state.presenceUsers = {};
   state.pendingRemoteEdits = {};
+  removeRemoteCursors();
 }
 
 function updatePresenceFromChannel(channel){
@@ -1057,24 +1092,44 @@ function updateMyPresenceSection(sectionKey){
   });
 }
 
-function broadcastSectionEdit(sectionKey, html){
+function broadcastSectionEdit(sectionKey, html, cursorOffset){
   if(!state.realtimeChannel || !state.currentUser) return;
   state.realtimeChannel.send({
     type:'broadcast', event:'edit',
-    payload:{ sectionKey, html, fromUserId: state.currentUser.id, ts: Date.now() }
+    payload:{
+      sectionKey, html,
+      fromUserId: state.currentUser.id,
+      color: colorForUser(state.currentUser.id),
+      displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
+      cursorOffset,
+      ts: Date.now()
+    }
   });
 }
 
 function handleRemoteEdit(payload){
-  const { sectionKey, html, fromUserId } = payload || {};
+  const { sectionKey, html, fromUserId, cursorOffset, color, displayName } = payload || {};
   if(!sectionKey || fromUserId === (state.currentUser && state.currentUser.id)) return;
-  // Ledger 뷰일 때도 메모리(openProject)는 항상 최신으로 유지 → 나중에 캔버스를 렌더할 때 반영됨
+  // Ledger 뷰일 때도 메모리(openProject)는 항상 최신으로 유지
   if(state.openProject) state.openProject.content[sectionKey] = html;
   const el = document.getElementById('sec-content-input-' + sectionKey);
   if(!el) return;
-  // 내가 지금 이 섹션을 편집 중이면 덮어쓰지 않는다 (충돌 방지)
-  if(document.activeElement === el) return;
-  applyRemoteEditToSection(sectionKey, html);
+
+  // 적극적으로 타이핑 중(1.5초 이내 입력)인 경우에만 덮어쓰기 건너뜀
+  const activelyTyping = document.activeElement === el &&
+    _lastTypedAt[sectionKey] && (Date.now() - _lastTypedAt[sectionKey]) < 1500;
+
+  if(!activelyTyping){
+    // 포커스가 있어도(읽는 중) 내 커서 위치를 기억했다가 복원
+    const hasFocus = document.activeElement === el;
+    let savedOffset = null;
+    if(hasFocus) savedOffset = getCaretCharOffset(el);
+    applyRemoteEditToSection(sectionKey, html);
+    if(hasFocus && savedOffset !== null) restoreCaretPosition(el, savedOffset);
+  }
+
+  // 상대방 커서 표시
+  if(cursorOffset != null) showRemoteCursor(sectionKey, fromUserId, cursorOffset, color, displayName);
 }
 
 function applyRemoteEditToSection(sectionKey, html){
@@ -1095,6 +1150,98 @@ function applyRemoteEditToSection(sectionKey, html){
   }
   refreshTocFilledState(sectionKey, plain.trim().length > 0);
 }
+
+/* ─── 커서 헬퍼 ─── */
+
+// contenteditable el 안에서 캐럿의 텍스트 문자 오프셋 반환
+function getCaretCharOffset(el){
+  const sel = window.getSelection();
+  if(!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if(!el.contains(range.startContainer)) return 0;
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+// 텍스트 문자 오프셋 → DOM Range
+function getRangeForCharOffset(el, offset){
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node;
+  while((node = walker.nextNode())){
+    const len = node.textContent.length;
+    if(remaining <= len){
+      const r = document.createRange();
+      r.setStart(node, remaining);
+      r.collapse(true);
+      return r;
+    }
+    remaining -= len;
+  }
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  r.collapse(false);
+  return r;
+}
+
+// 저장해 둔 오프셋으로 캐럿 복원
+function restoreCaretPosition(el, offset){
+  const range = getRangeForCharOffset(el, offset);
+  const sel = window.getSelection();
+  if(sel){ sel.removeAllRanges(); sel.addRange(range); }
+}
+
+// 상대방 커서를 뷰포트 위에 fixed 레이어로 표시
+function showRemoteCursor(sectionKey, userId, charOffset, color, displayName){
+  const el = document.getElementById('sec-content-input-' + sectionKey);
+  if(!el) return;
+  const range = getRangeForCharOffset(el, charOffset);
+  const rects = range.getClientRects();
+  const rect = rects.length ? rects[0] : range.getBoundingClientRect();
+  if(!rect || rect.height === 0) return;
+
+  const cursorId = 'rc-' + userId.replace(/[^a-zA-Z0-9]/g, '-');
+  let cursor = document.getElementById(cursorId);
+  if(!cursor){
+    cursor = document.createElement('div');
+    cursor.id = cursorId;
+    cursor.className = 'remote-cursor';
+    const label = document.createElement('div');
+    label.className = 'remote-cursor-label';
+    cursor.appendChild(label);
+    document.body.appendChild(cursor);
+  }
+  const label = cursor.querySelector('.remote-cursor-label');
+  if(label){
+    label.textContent = displayName || '';
+    label.style.backgroundColor = color || '#888';
+  }
+  cursor.style.setProperty('--cursor-color', color || '#888');
+  cursor.style.left = rect.left + 'px';
+  cursor.style.top = rect.top + 'px';
+  cursor.style.height = (rect.height || 18) + 'px';
+  cursor.style.display = 'block';
+  clearTimeout(cursor._hideTimer);
+  cursor._hideTimer = setTimeout(() => { if(cursor) cursor.style.display = 'none'; }, 4000);
+}
+
+// 채널 이탈 시 모든 원격 커서 제거
+function removeRemoteCursors(){
+  document.querySelectorAll('.remote-cursor').forEach(el => el.remove());
+}
+
+// cursor 브로드캐스트 수신 핸들러
+function handleRemoteCursor(payload){
+  const { sectionKey, fromUserId, cursorOffset, color, displayName } = payload || {};
+  if(!sectionKey || !fromUserId) return;
+  if(fromUserId === (state.currentUser && state.currentUser.id)) return;
+  if(cursorOffset == null) return;
+  showRemoteCursor(sectionKey, fromUserId, cursorOffset, color, displayName);
+}
+
+/* ─────────────────── */
 
 function renderPresenceBar(){
   const el = document.getElementById('presence-bar');
