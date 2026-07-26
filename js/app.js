@@ -1152,16 +1152,20 @@ function togglePresencePanel(){
 }
 
 function refreshTocPresenceDots(){
-  document.querySelectorAll('.toc-presence').forEach(el => el.remove());
+  // 모든 탭 테두리 초기화
+  document.querySelectorAll('.toc-item').forEach(btn => {
+    btn.style.borderLeftColor = '';
+    btn.title = '';
+  });
+  // 섹션별로 첫 번째 접속자 색상을 border-left에 적용
+  const seen = new Set();
   Object.values(state.presenceUsers || {}).forEach(u => {
-    if(!u.sectionKey) return;
+    if(!u.sectionKey || seen.has(u.sectionKey)) return;
     const btn = document.querySelector(`.toc-item[data-section-key="${u.sectionKey}"]`);
     if(!btn) return;
-    const dot = document.createElement('span');
-    dot.className = 'toc-presence';
-    dot.style.background = u.color;
-    dot.title = (u.displayName || u.email || '') + ' 편집 중';
-    btn.appendChild(dot);
+    btn.style.borderLeftColor = u.color;
+    btn.title = (u.displayName || u.email || '') + ' 편집 중';
+    seen.add(u.sectionKey);
   });
 }
 
