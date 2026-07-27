@@ -5764,7 +5764,9 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       body += pHeading(s.label);
     } else {
       numberedIndex++;
-      body += pHeading(`${numberedIndex}. ${s.label}`);
+      // 라벨에 이미 번호가 붙어 있으면(예: "1. Introduction") 제거하고 다시 붙인다
+      const cleanLabel = s.label.replace(/^\d+[\.\s]+/, '').trim();
+      body += pHeading(`${numberedIndex}. ${cleanLabel}`);
     }
     if(isReferencesSection(s)){
       if(references && references.length){
