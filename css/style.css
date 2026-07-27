@@ -613,7 +613,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .fig-actions button:hover{ color:var(--ink); background:var(--paper); }
 .fig-actions button.fig-delete:hover{ color:var(--brick); }
 
-.tbl-card{ display:flex; flex-direction:column; gap:6px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; }
+.tbl-card{ display:flex; flex-direction:column; gap:6px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; min-width:0; }
 .tbl-card.dragging{ opacity:0.35; }
 .tbl-card.drag-over{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
 .tbl-drag-handle{ flex-shrink:0; color:var(--ink-faint); font-size:15px; cursor:grab; letter-spacing:-2px; user-select:none; padding:0 4px; }
@@ -621,9 +621,9 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .ledger-unplaced-sep{ display:flex; align-items:center; gap:10px; margin:8px 0 4px; color:var(--ink-faint); font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; }
 .ledger-unplaced-sep::before,.ledger-unplaced-sep::after{ content:''; flex:1; height:1px; background:var(--line); }
 .ledger-unplaced-sep::before{ flex:0 0 0px; }
-.tbl-card-head{ display:flex; align-items:center; gap:10px; }
-.tbl-grid-wrap{ overflow-x:auto; margin-top:4px; }
-.tbl-edit-grid{ border-collapse:collapse; }
+.tbl-card-head{ display:flex; align-items:center; gap:10px; min-width:0; }
+.tbl-grid-wrap{ overflow-x:auto; margin-top:4px; width:100%; }
+.tbl-edit-grid{ border-collapse:collapse; width:max-content; min-width:100%; }
 .tbl-edit-grid th, .tbl-edit-grid td{ border:1px solid var(--line); padding:0; }
 .tbl-cell-input{ width:100px; box-sizing:border-box; border:none; background:transparent; padding:7px 8px; font-family:'Times New Roman', '맑은 고딕', serif; font-size:12.5px; color:var(--ink); }
 .tbl-cell-input:focus{ background:var(--gold-bg); outline:none; }
