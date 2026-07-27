@@ -1192,6 +1192,7 @@ function joinProjectRealtime(projectId){
   channel.on('broadcast', { event:'edit_deny' }, (msg) => handleEditDeny(msg.payload));
   channel.on('broadcast', { event:'highlight' }, (msg) => handleRemoteHighlightEvent(msg.payload));
   channel.on('broadcast', { event:'item_comment' }, (msg) => handleRemoteItemCommentEvent(msg.payload));
+  channel.on('broadcast', { event:'ledger_add' }, (msg) => handleRemoteLedgerAdd(msg.payload));
   channel.on('presence', { event:'sync' }, () => updatePresenceFromChannel(channel));
   channel.subscribe((status) => {
     if(status === 'SUBSCRIBED'){
@@ -1305,6 +1306,31 @@ function updateMyPresenceSection(sectionKey, isFollowing){
     displayName: (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email,
     color: colorForUser(state.currentUser.id),
     sectionKey, following: !!isFollowing, at: _mySectionAt
+  });
+}
+
+function broadcastLedgerAdd(type, preview){
+  if(!state.realtimeChannel || !state.currentUser) return;
+  const displayName = (state.currentUser.profile && state.currentUser.profile.display_name) || state.currentUser.email;
+  state.realtimeChannel.send({
+    type:'broadcast', event:'ledger_add',
+    payload:{ type, preview, fromUserId: state.currentUser.id, displayName }
+  });
+}
+
+const LEDGER_ADD_LABELS = { figure:'📷 그림', table:'📋 표', reference:'📄 참고문헌' };
+const LEDGER_ADD_ACTIONS = { figure:{ type:'figure' }, table:{ type:'table' }, reference:{ type:'reference' } };
+
+function handleRemoteLedgerAdd(payload){
+  const { type, preview, fromUserId, displayName } = payload || {};
+  if(!type || fromUserId === (state.currentUser && state.currentUser.id)) return;
+  const author = displayName || '누군가';
+  const label = LEDGER_ADD_LABELS[type] || type;
+  const body = preview ? `"${preview}"` : `${label}이 추가됐어요`;
+  addNotification({
+    type: 'ledger', author, body,
+    color: colorForUser(fromUserId),
+    action: LEDGER_ADD_ACTIONS[type] || null
   });
 }
 
@@ -2722,6 +2748,7 @@ async function uploadAndAddFigure(file){
   });
   const ok = await setFigures(state.currentProjectId, state.figures);
   if(!ok) showToast('그림 저장에 실패했어요. 다시 시도해주세요');
+  broadcastLedgerAdd('figure', file.name);
   const project = await getProject(state.currentProjectId);
   if(project) renderWorkspace(project);
 }
@@ -2876,6 +2903,7 @@ async function addNewTable(){
   state.tables.push(makeEmptyTable());
   const ok = await setTables(state.currentProjectId, state.tables);
   if(!ok) showToast('표 저장에 실패했어요. 다시 시도해주세요');
+  broadcastLedgerAdd('table', `Table ${state.tables.length}`);
   const project = await getProject(state.currentProjectId);
   if(project) renderWorkspace(project);
 }
@@ -3728,8 +3756,8 @@ function handleRemoteHighlightEvent(payload){
 }
 
 /* ============== 실시간 알림 센터 ============== */
-const NOTIF_ICONS = { chat:'💬', comment:'🗨️', highlight:'✏️' };
-const NOTIF_LABELS = { chat:'팀 채팅', comment:'댓글', highlight:'하이라이트' };
+const NOTIF_ICONS = { chat:'💬', comment:'🗨️', highlight:'✏️', ledger:'📁' };
+const NOTIF_LABELS = { chat:'팀 채팅', comment:'댓글', highlight:'하이라이트', ledger:'자료 추가' };
 
 function addNotification({ type, author, body, color, action }){
   const notif = {
@@ -4214,6 +4242,7 @@ async function submitReference(){
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
     text, doi, memo, addedAt: Date.now()
   });
+  broadcastLedgerAdd('reference', text.slice(0, 60));
   refFormOpen = false;
   const project = await getProject(state.currentProjectId);
   if(project){
