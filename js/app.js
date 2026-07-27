@@ -1988,15 +1988,26 @@ function _onSelectionChange(){
     top = rect.top - 44;
     left = rect.left + rect.width / 2;
   } else {
-    // 빈 줄 등에서 rect이 0인 경우 editor 영역 기준으로 폴백
-    const er = editorEl.getBoundingClientRect();
-    top = er.top - 44;
-    left = er.left + 60;
+    // 빈 줄에서 range rect이 0 → 커서가 위치한 요소의 rect으로 폴백
+    // (editor 최상단으로 점프하지 않고 실제 커서 근처에 툴바를 표시)
+    const startNode = range.startContainer;
+    const containerEl = startNode.nodeType === Node.ELEMENT_NODE
+      ? startNode
+      : startNode.parentElement;
+    const cr = containerEl ? containerEl.getBoundingClientRect() : null;
+    if(cr && cr.height > 0){
+      top = cr.top - 44;
+      left = cr.left;
+    } else {
+      const er = editorEl.getBoundingClientRect();
+      top = er.top - 44;
+      left = er.left + 60;
+    }
   }
 
   const tbW = tb.offsetWidth || 190;
   left = Math.max(8, Math.min(window.innerWidth - tbW - 8, left - tbW / 2));
-  if(top < 56) top = (rect.height > 0 ? rect.bottom : top + 80) + 8;
+  if(top < 56) top = (rect.height > 0 ? rect.bottom : (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer.getBoundingClientRect().bottom : 0) || top + 80) + 8;
 
   tb.style.top = top + 'px';
   tb.style.left = left + 'px';
