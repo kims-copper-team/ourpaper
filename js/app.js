@@ -1789,15 +1789,25 @@ function buildFigureInsertPanel(){
     itemsHtml = `<div class="insert-popover-empty">아직 업로드한 그림이 없어요.<br>Fig Ledger에서 먼저 추가해보세요.</div>`;
   } else {
     const project = state.openProject;
-    itemsHtml = figures.map((f,i) => `
-      <button class="insert-item" onclick="pickFigureInsert(${i})">
+    const order = project ? computeFigureOrder(project, figures) : [];
+    const embeddedIds = new Set(order);
+    const numMap = new Map(order.map((id, i) => [id, i + 1]));
+    const sorted = [
+      ...order.map(id => figures.find(f => f.id === id)).filter(Boolean),
+      ...figures.filter(f => !embeddedIds.has(f.id))
+    ];
+    itemsHtml = sorted.map(f => {
+      const num = numMap.get(f.id);
+      const label = num ? `Fig. ${num}` : 'Fig. — (미삽입)';
+      return `
+      <button class="insert-item" onclick="pickFigureInsert('${f.id}')">
         <span class="insert-thumb"><img src="${figureSrc(f)}" alt=""></span>
         <span class="insert-text">
-          <div class="insert-primary">${project && isFigureEmbedded(project, f.id) ? 'Fig. '+figureNumberById(project, figures, f.id) : 'Fig. — (미삽입)'}</div>
+          <div class="insert-primary">${label}</div>
           <div class="insert-secondary">${escapeHtml(f.caption || f.fileName)}</div>
         </span>
-      </button>
-    `).join('');
+      </button>`;
+    }).join('');
   }
   return tabs + itemsHtml;
 }
@@ -2152,9 +2162,9 @@ function insertContentAtCursor(html){
   el.dispatchEvent(new Event('input', { bubbles:true }));
 }
 
-async function pickFigureInsert(index){
+async function pickFigureInsert(figId){
   const figures = state.figures || [];
-  const f = figures[index];
+  const f = figures.find(x => x.id === figId);
   if(!f) return;
   const mode = state.figInsertMode || 'embed';
   const project = state.openProject;
@@ -2196,11 +2206,18 @@ function buildTableInsertPanel(){
     itemsHtml = `<div class="insert-popover-empty">아직 만든 표가 없어요.<br>Table Ledger에서 먼저 추가해보세요.</div>`;
   } else {
     const project = state.openProject;
-    itemsHtml = tables.map((t,i) => {
-      const num = project ? tableNumberById(project, tables, t.id) : null;
+    const order = project ? computeTableOrder(project, tables) : [];
+    const embeddedIds = new Set(order);
+    const numMap = new Map(order.map((id, i) => [id, i + 1]));
+    const sorted = [
+      ...order.map(id => tables.find(t => t.id === id)).filter(Boolean),
+      ...tables.filter(t => !embeddedIds.has(t.id))
+    ];
+    itemsHtml = sorted.map(t => {
+      const num = numMap.get(t.id);
       const label = num != null ? `Table ${num}` : 'Table — (미삽입)';
       return `
-        <button class="insert-item" onclick="pickTableInsert(${i})">
+        <button class="insert-item" onclick="pickTableInsert('${t.id}')">
           <span class="insert-num">${num != null ? 'T'+num : '—'}</span>
           <span class="insert-text">
             <div class="insert-primary">${label}</div>
@@ -2234,9 +2251,9 @@ function buildInlineTableHtml(t, num){
     `</div><div><br></div>`;
 }
 
-async function pickTableInsert(index){
+async function pickTableInsert(tableId){
   const tables = state.tables || [];
-  const t = tables[index];
+  const t = tables.find(x => x.id === tableId);
   if(!t) return;
   const mode = state.tableInsertMode || 'embed';
   const project = state.openProject;
