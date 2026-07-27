@@ -2554,6 +2554,7 @@ function computeTableOrder(project, tables){
       if(knownIds.has(id) && !seen.has(id)){ seen.add(id); ordered.push(id); }
     }
   });
+  (tables||[]).forEach(t => { if(!seen.has(t.id)) ordered.push(t.id); });
   return ordered;
 }
 function isTableEmbedded(project, id){
