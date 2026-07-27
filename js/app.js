@@ -2705,7 +2705,7 @@ function renderFigureManager(project){
     return `
     <div class="fig-card" data-fig-id="${f.id}"${draggable ? ' draggable="true"' : ''}>
       ${draggable ? '<div class="fig-drag-handle" title="드래그하여 순서 변경">⠿</div>' : ''}
-      <div class="fig-thumb-wrap"><img src="${figureSrc(f)}" alt="${escapeHtml(f.fileName)}" /></div>
+      <div class="fig-thumb-wrap" onclick="openFigureLightbox('${f.id}')" title="클릭하여 확대"><img src="${figureSrc(f)}" alt="${escapeHtml(f.fileName)}" /></div>
       <div class="fig-body">
         <div class="fig-head-row">
           <span class="fig-label">${num != null ? `Fig. ${num}` : 'Fig. —'}</span>
@@ -4861,6 +4861,35 @@ function scheduleAuthorSave(){
   state.authorSaveTimer = setTimeout(async () => {
     await setProjectAuthors(state.currentProjectId, state.authors || []);
   }, 500);
+}
+
+function openFigureLightbox(figId){
+  const f = (state.figures || []).find(f => f.id === figId);
+  if(!f) return;
+  const src = figureSrc(f);
+  if(!src) return;
+
+  const lb = document.createElement('div');
+  lb.className = 'fig-lightbox';
+  lb.innerHTML = `
+    <button class="fig-lightbox-close" title="닫기">✕</button>
+    <img class="fig-lightbox-img" src="${src}" alt="${escapeHtml(f.fileName)}" />
+    ${f.caption ? `<div class="fig-lightbox-caption">${escapeHtml(f.caption)}</div>` : ''}
+  `;
+
+  function close(){
+    lb.classList.add('fig-lb-hide');
+    setTimeout(() => lb.remove(), 200);
+    document.removeEventListener('keydown', onKey);
+  }
+
+  lb.addEventListener('click', e => { if(e.target === lb) close(); });
+  lb.querySelector('.fig-lightbox-close').addEventListener('click', close);
+
+  function onKey(e){ if(e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(lb);
 }
 
 function triggerReplaceFigure(figId){
