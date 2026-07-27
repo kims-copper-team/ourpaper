@@ -1494,9 +1494,12 @@ function refreshTocPresenceDots(){
 /* ─── 섹션 잠금 & 편집 권한 요청 ─── */
 
 function applySectionLocks(){
-  // 다른 유저(팔로우 중 아닌)가 점유 중인 섹션 맵
+  // 자신을 제외한 다른 유저(팔로우 중 아닌)가 점유 중인 섹션 맵
+  // 자신의 presence는 타임스탬프 경쟁 대상에서 제외 → 자기 자신에 의한 잠금 방지
+  const myUserId = state.currentUser?.id;
   const lockedBy = {};
   Object.values(state.presenceUsers || {}).forEach(u => {
+    if(u.userId === myUserId) return;
     if(u.sectionKey && !u.following) lockedBy[u.sectionKey] = u;
   });
 
