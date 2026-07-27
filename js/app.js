@@ -240,6 +240,14 @@ function fmtDate(ts){
   const d = new Date(ts);
   return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0');
 }
+function fmtChatTime(ts){
+  const d = new Date(ts), now = new Date();
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  const time = hh + ':' + mm;
+  if(d.toDateString() === now.toDateString()) return time;
+  return (d.getMonth()+1) + '.' + d.getDate() + ' ' + time;
+}
 function wordCount(text){
   if(!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -3018,6 +3026,78 @@ async function removeMember(projectId, userId){
 
 let inviteFormOpen = false;
 
+/* ============== 팀 채팅 ============== */
+function getChatMessages(){
+  return (state.itemComments || []).filter(c => c.itemType === 'chat');
+}
+
+function _chatMsgHtml(m, myId){
+  const color = colorForUser(m.userId);
+  const isMine = m.userId === myId;
+  const initials = ((m.displayName || m.email || '?').trim()[0] || '?').toUpperCase();
+  const deleteBtn = isMine
+    ? `<button class="chat-delete" title="삭제" onclick="deleteChatMessage('${m.id}')">✕</button>`
+    : '';
+  return `
+    <div class="chat-msg${isMine ? ' chat-msg-mine' : ''}" data-chat-id="${m.id}">
+      <span class="chat-avatar" style="background:${color}22;color:${color};border-color:${color};">${escapeHtml(initials)}</span>
+      <div class="chat-bubble">
+        <div class="chat-meta">
+          <span class="chat-author" style="color:${color};">${escapeHtml(m.displayName || m.email || '?')}</span>
+          <span class="chat-time">${fmtChatTime(m.createdAt)}</span>
+          ${deleteBtn}
+        </div>
+        <div class="chat-text">${escapeHtml(m.content)}</div>
+      </div>
+    </div>`;
+}
+
+function refreshChatPanel(){
+  const el = document.getElementById('chat-msg-list');
+  if(!el) return;
+  const msgs = getChatMessages();
+  const myId = state.currentUser && state.currentUser.id;
+  el.innerHTML = msgs.length
+    ? msgs.map(m => _chatMsgHtml(m, myId)).join('')
+    : '<div class="chat-empty">아직 메시지가 없어요. 팀원들에게 첫 메시지를 남겨보세요 👋</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChatMessage(){
+  const input = document.getElementById('chat-input');
+  if(!input) return;
+  const content = input.value.trim();
+  if(!content) return;
+  input.value = '';
+  input.style.height = '';
+  const comment = await createItemComment(state.currentProjectId, 'chat', state.currentProjectId, content);
+  if(!comment){ showToast('전송에 실패했어요'); return; }
+  state.itemComments = state.itemComments || [];
+  state.itemComments.push(comment);
+  refreshChatPanel();
+  broadcastItemCommentEvent('create', comment);
+}
+
+async function deleteChatMessage(id){
+  const ok = await deleteItemCommentRow(id);
+  if(!ok){ showToast('삭제에 실패했어요'); return; }
+  state.itemComments = (state.itemComments || []).filter(c => c.id !== id);
+  refreshChatPanel();
+  broadcastItemCommentEvent('delete', { id, itemType:'chat', itemId: state.currentProjectId });
+}
+
+function _initChatInput(){
+  const input = document.getElementById('chat-input');
+  if(!input) return;
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendChatMessage(); }
+  });
+  input.addEventListener('input', () => {
+    input.style.height = '';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+}
+
 function renderMembersManager(project){
   const pane = document.getElementById('editor-pane');
   const isOwner = project.ownerId === state.currentUser.id;
@@ -3073,12 +3153,26 @@ function renderMembersManager(project){
     <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">${isOwner ? '이메일로 참여자를 초대하세요. 초대받은 사람은 가입만 되어 있으면 바로 이 프로젝트를 함께 편집할 수 있어요.' : '이 프로젝트의 소유자와 참여자 목록이에요. 초대·제거는 소유자만 할 수 있어요.'}</div>
     ${inviteForm}
     <div class="fig-list" id="member-list">${ownerCard}${memberCards}</div>
+
+    <div class="chat-section">
+      <div class="chat-section-head">
+        <span class="chat-section-title">💬 팀 채팅</span>
+        <span style="font-size:11px;color:var(--ink-faint);">Enter로 전송 · Shift+Enter 줄바꿈</span>
+      </div>
+      <div class="chat-msg-list" id="chat-msg-list"></div>
+      <div class="chat-input-row">
+        <textarea class="chat-input" id="chat-input" placeholder="메시지를 입력하세요…" rows="1"></textarea>
+        <button class="btn small" onclick="sendChatMessage()">전송</button>
+      </div>
+    </div>
   `;
 
   if(inviteFormOpen){
     const input = document.getElementById('invite-email-input');
     if(input) input.focus();
   }
+  refreshChatPanel();
+  _initChatInput();
 }
 
 function showInviteMemberForm(){
@@ -3825,12 +3919,25 @@ function handleRemoteItemCommentEvent(payload){
   const { action, comment, fromUserId } = payload || {};
   if(!comment || fromUserId === (state.currentUser && state.currentUser.id)) return;
   state.itemComments = state.itemComments || [];
+
+  const isChat = comment.itemType === 'chat';
+
   if(action === 'create'){
     if(!state.itemComments.find(c => c.id === comment.id)) state.itemComments.push(comment);
-    refreshItemThread(comment.itemType, comment.itemId);
+    if(isChat){
+      refreshChatPanel();
+      if(state.currentSectionKey !== '__members__'){
+        const author = comment.displayName || comment.email || '누군가';
+        const preview = (comment.content || '').slice(0, 48);
+        showChatNotification(author, preview, colorForUser(comment.userId));
+      }
+    } else {
+      refreshItemThread(comment.itemType, comment.itemId);
+    }
   } else if(action === 'delete'){
     state.itemComments = state.itemComments.filter(c => c.id !== comment.id);
-    refreshItemThread(comment.itemType, comment.itemId);
+    if(isChat) refreshChatPanel();
+    else refreshItemThread(comment.itemType, comment.itemId);
   } else if(action === 'resolve' || action === 'unresolve'){
     const c = state.itemComments.find(x => x.id === comment.id);
     if(c){
@@ -3841,6 +3948,22 @@ function handleRemoteItemCommentEvent(payload){
     }
   }
   if(state.currentSectionKey === '__comments__') renderCommentsManager(state.openProject);
+}
+
+function showChatNotification(author, text, color){
+  const el = document.createElement('div');
+  el.className = 'chat-notif';
+  el.innerHTML = `
+    <div class="chat-notif-head">
+      <span class="chat-notif-dot" style="background:${color}"></span>
+      <strong>${escapeHtml(author)}</strong>
+    </div>
+    <div class="chat-notif-body">${escapeHtml(text)}</div>
+  `;
+  el.addEventListener('click', () => { el.remove(); selectMembers(); });
+  document.body.appendChild(el);
+  playNotificationSound();
+  setTimeout(() => { el.classList.add('comment-notif-hide'); setTimeout(() => el.remove(), 400); }, 5000);
 }
 
 /* ============== REF LEDGER (참고문헌 관리) ============== */
