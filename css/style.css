@@ -647,14 +647,24 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 /* 본문 내 인용 토큰 (Fig. N / Table N / [1-3]) */
 .body-fig-token,
 .body-table-token{
-  color:#1d6fd4; font-weight:700; border-radius:2px; padding:0 1px; cursor:default;
+  color:#1d6fd4; font-weight:700; border-radius:2px; padding:0 1px; cursor:pointer;
   font-style:normal; display:inline;
 }
+.body-fig-token:hover,
+.body-table-token:hover{ background:rgba(29,111,212,.08); text-decoration:underline; }
 .body-ref-token{
   color:#1d6fd4; font-weight:700; border-radius:2px; padding:0 1px;
   cursor:pointer; display:inline;
 }
 .body-ref-token:hover{ background:rgba(29,111,212,.08); }
+
+/* Fig./Table 인용 클릭 시 본문 위치 플래시 */
+@keyframes inline-block-flash{
+  0%   { box-shadow:0 0 0 3px #1d6fd4, 0 0 18px 4px rgba(29,111,212,.25); }
+  55%  { box-shadow:0 0 0 3px #1d6fd4, 0 0 18px 4px rgba(29,111,212,.25); }
+  100% { box-shadow:0 0 0 0px #1d6fd4, 0 0 0px 0px rgba(29,111,212,0); }
+}
+.inline-block-flash{ animation:inline-block-flash 1.4s ease-out forwards !important; }
 
 /* 인용 편집 팝업 */
 .cite-edit-popup{

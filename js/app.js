@@ -1080,6 +1080,10 @@ function renderManuscriptCanvas(project, isCustom){
       if(mark) openHighlightPopover(mark.dataset.hlId, mark);
       const refToken = e.target.closest('.body-ref-token');
       if(refToken) openCiteEditPopup(refToken);
+      const figToken = e.target.closest('.body-fig-token');
+      if(figToken){ jumpToInlineBlock('figure', figToken); return; }
+      const tableToken = e.target.closest('.body-table-token');
+      if(tableToken){ jumpToInlineBlock('table', tableToken); return; }
     });
 
     if(isCustom){
@@ -2262,6 +2266,36 @@ function insertContentAtCursor(html){
     }
   }
   el.dispatchEvent(new Event('input', { bubbles:true }));
+}
+
+// Fig. N / Table N 인용 토큰 클릭 시 본문 내 실제 삽입 위치로 스크롤 + 플래시
+function jumpToInlineBlock(kind, tokenEl){
+  const project = state.openProject;
+  if(!project) return;
+  const text = tokenEl.textContent.trim();
+  const m = kind === 'figure' ? text.match(/Fig\.\s*(\d+)/i) : text.match(/Table\s*(\d+)/i);
+  if(!m) return;
+  const num = parseInt(m[1], 10);
+
+  let targetEl = null;
+  if(kind === 'figure'){
+    const order = computeFigureOrder(project, state.figures || []);
+    const embeddedIds = order.filter(id => isFigureEmbedded(project, id));
+    const figId = embeddedIds[num - 1];
+    if(figId) targetEl = document.querySelector(`.inline-figure[data-fig-id="${figId}"]`);
+  } else {
+    const order = computeTableOrder(project, state.tables || []);
+    const embeddedIds = order.filter(id => isTableEmbedded(project, id));
+    const tableId = embeddedIds[num - 1];
+    if(tableId) targetEl = document.querySelector(`.inline-table[data-table-id="${tableId}"]`);
+  }
+
+  if(!targetEl){ showToast('본문에서 해당 ' + (kind === 'figure' ? '그림' : '표') + '을 찾을 수 없어요'); return; }
+  targetEl.scrollIntoView({ behavior:'smooth', block:'center' });
+  targetEl.classList.remove('inline-block-flash');
+  void targetEl.offsetWidth; // reflow to restart animation
+  targetEl.classList.add('inline-block-flash');
+  setTimeout(() => targetEl.classList.remove('inline-block-flash'), 1400);
 }
 
 async function pickFigureInsert(figId){
