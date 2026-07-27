@@ -1038,6 +1038,8 @@ function renderManuscriptCanvas(project, isCustom){
       scheduleSave(project);
       refreshTocFilledState(sec.key, plain.trim().length > 0);
       broadcastThrottled(contentInput.innerHTML);
+      // 하이라이트 원문이 수정됐으면 자동 제거 (현재 이벤트 처리 후 실행)
+      setTimeout(() => _autoRemoveModifiedHighlights(contentInput, sec.key, project), 0);
     });
 
     // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
@@ -3465,6 +3467,36 @@ function persistSectionAfterHighlightChange(sectionKey){
   state.openProject.content[sectionKey] = el.innerHTML;
   scheduleSave(state.openProject);
   broadcastSectionEdit(sectionKey, el.innerHTML);
+}
+
+// 텍스트를 덮어쓰거나 삭제해서 하이라이트 원문이 바뀐 경우 mark를 자동 제거한다.
+function _autoRemoveModifiedHighlights(contentEl, sectionKey, project){
+  const marks = Array.from(contentEl.querySelectorAll('mark.hl[data-hl-id]'));
+  if(!marks.length) return;
+  const removed = [];
+  marks.forEach(mark => {
+    const id = mark.dataset.hlId;
+    const h = (state.highlights || []).find(x => x.id === id);
+    if(!contentEl.contains(mark)){
+      // mark가 DOM에서 완전히 삭제된 경우
+      removed.push({ id, h });
+      return;
+    }
+    if(!h || mark.textContent !== h.quoteText){
+      mark.replaceWith(...Array.from(mark.childNodes));
+      removed.push({ id, h });
+    }
+  });
+  if(!removed.length) return;
+  const removedIds = new Set(removed.map(x => x.id));
+  state.highlights = (state.highlights || []).filter(x => !removedIds.has(x.id));
+  project.content[sectionKey] = contentEl.innerHTML;
+  removed.forEach(({ id, h }) => {
+    deleteHighlightRow(id);
+    if(h) broadcastHighlightEvent('delete', h);
+  });
+  if(state.openProject) refreshTocOnly(state.openProject);
+  if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
 }
 
 // 전자책 리더처럼: 본문에서 문구를 선택하면(마우스를 떼는 순간) 선택 영역
