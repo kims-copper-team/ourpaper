@@ -1332,6 +1332,45 @@ function handleRemoteLedgerAdd(payload){
     color: colorForUser(fromUserId),
     action: LEDGER_ADD_ACTIONS[type] || null
   });
+
+  // 백그라운드로 해당 ledger 데이터를 즉시 갱신해 TOC 카운트와 삽입 팝업을 최신화
+  const pid = state.currentProjectId;
+  if(!pid) return;
+  if(type === 'figure'){
+    getFigures(pid).then(({ figures, failed }) => {
+      if(!failed){ state.figures = figures; _refreshTocIfVisible(); }
+    });
+  } else if(type === 'table'){
+    getTables(pid).then(({ tables, failed }) => {
+      if(!failed){ state.tables = tables; _refreshTocIfVisible(); }
+    });
+  } else if(type === 'reference'){
+    getReferences(pid).then(({ references, failed }) => {
+      if(!failed){ state.references = references; _refreshTocIfVisible(); }
+    });
+  }
+}
+
+function _refreshTocIfVisible(){
+  if(!state.openProject) return;
+  const k = state.currentSectionKey;
+  // 현재 해당 Ledger를 보고 있으면 내용까지 전체 갱신
+  if(k === '__figures__' || k === '__tables__' || k === '__refs__'){
+    renderWorkspace(state.openProject);
+    return;
+  }
+  // 그 외(본문 편집 중 등)는 TOC 카운트만 조용히 업데이트 — 편집 포커스 유지
+  const sectionMap = {
+    '__figures__': (state.figures || []).length,
+    '__tables__': (state.tables || []).length,
+    '__refs__': (state.references || []).length
+  };
+  Object.entries(sectionMap).forEach(([key, count]) => {
+    const btn = document.querySelector(`.toc-item[data-section-key="${key}"] span:nth-child(2)`);
+    if(!btn) return;
+    const label = key === '__figures__' ? 'Fig Ledger' : key === '__tables__' ? 'Table Ledger' : 'Ref Ledger';
+    btn.textContent = count ? `${label} (${count})` : label;
+  });
 }
 
 function broadcastSectionEdit(sectionKey, html, cursorOffset){
@@ -5163,16 +5202,26 @@ async function selectSection(key){
 async function selectFigures(){
   state.currentSectionKey = '__figures__';
   updateMyPresenceSection('__figures__');
-  const project = await getProject(state.currentProjectId);
+  const [project, { figures, failed: figFailed }] = await Promise.all([
+    getProject(state.currentProjectId),
+    getFigures(state.currentProjectId)
+  ]);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  state.figuresLoadFailed = figFailed;
+  if(!figFailed) state.figures = figures;
   renderWorkspace(project);
 }
 
 async function selectTables(){
   state.currentSectionKey = '__tables__';
   updateMyPresenceSection('__tables__');
-  const project = await getProject(state.currentProjectId);
+  const [project, { tables, failed: tblFailed }] = await Promise.all([
+    getProject(state.currentProjectId),
+    getTables(state.currentProjectId)
+  ]);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  state.tablesLoadFailed = tblFailed;
+  if(!tblFailed) state.tables = tables;
   renderWorkspace(project);
 }
 
@@ -5195,8 +5244,13 @@ async function selectComments(){
 async function selectReferences(){
   state.currentSectionKey = '__refs__';
   updateMyPresenceSection('__refs__');
-  const project = await getProject(state.currentProjectId);
+  const [project, { references, failed: refFailed }] = await Promise.all([
+    getProject(state.currentProjectId),
+    getReferences(state.currentProjectId)
+  ]);
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  state.referencesLoadFailed = refFailed;
+  if(!refFailed) state.references = references;
   renderWorkspace(project);
 }
 
