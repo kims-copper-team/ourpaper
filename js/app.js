@@ -643,33 +643,33 @@ function renderWorkspace(project){
 
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
       <span class="toc-num">✎</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">댓글${state.highlightsLoadFailed ? ' ⚠' : (openCommentCount ? ` (${openCommentCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Author Ledger${state.authorsLoadFailed ? ' ⚠' : (authorCount ? ` (${authorCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" data-section-key="__figures__" onclick="selectFigures()">
       <span class="toc-num">▤</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const tablesBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__tables__'?'active':''}" data-section-key="__tables__" onclick="selectTables()">
       <span class="toc-num">▦</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Table Ledger${state.tablesLoadFailed ? ' ⚠' : (tableCount ? ` (${tableCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Ref Ledger${state.referencesLoadFailed ? ' ⚠' : (refCount ? ` (${refCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>
     <div class="toc-divider"></div>`;
 
@@ -677,8 +677,8 @@ function renderWorkspace(project){
     const filled = isSectionFilled(project, s);
     return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" data-section-key="${s.key}" onclick="selectSection('${s.key}')">
       <span class="toc-num">${String(i+1).padStart(2,'0')}</span>
-      <span class="toc-dot"></span>
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
+      <span class="toc-dot"></span>
     </button>`;
   }).join('');
 
@@ -4390,41 +4390,41 @@ function refreshTocOnly(project){
   const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length + (state.itemComments || []).filter(c => !c.resolvedAt).length;
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const commentsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__comments__'?'active':''}" data-section-key="__comments__" onclick="selectComments()">
       <span class="toc-num">✎</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">댓글${state.highlightsLoadFailed ? ' ⚠' : (openCommentCount ? ` (${openCommentCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const authorsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__authors__'?'active':''}" data-section-key="__authors__" onclick="selectAuthors()">
       <span class="toc-num">✎</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Author Ledger${state.authorsLoadFailed ? ' ⚠' : (authorCount ? ` (${authorCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const figuresBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__figures__'?'active':''}" data-section-key="__figures__" onclick="selectFigures()">
       <span class="toc-num">▤</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Fig Ledger${state.figuresLoadFailed ? ' ⚠' : (figCount ? ` (${figCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const tablesBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__tables__'?'active':''}" data-section-key="__tables__" onclick="selectTables()">
       <span class="toc-num">▦</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Table Ledger${state.tablesLoadFailed ? ' ⚠' : (tableCount ? ` (${tableCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>`;
   const refsBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__refs__'?'active':''}" data-section-key="__refs__" onclick="selectReferences()">
       <span class="toc-num">§</span>
-      <span class="toc-dot" style="visibility:hidden;"></span>
       <span style="flex:1;text-align:left;">Ref Ledger${state.referencesLoadFailed ? ' ⚠' : (refCount ? ` (${refCount})` : '')}</span>
+      <span class="toc-dot" style="visibility:hidden;"></span>
     </button>
     <div class="toc-divider"></div>`;
   const tocItems = secs.map((s,i)=>{
     const filled = isSectionFilled(project, s);
     return `<button class="toc-item ${s.key===state.currentSectionKey?'active':''} ${filled?'filled':''}" data-section-key="${s.key}" onclick="selectSection('${s.key}')">
       <span class="toc-num">${String(i+1).padStart(2,'0')}</span>
-      <span class="toc-dot"></span>
       <span style="flex:1;text-align:left;">${escapeHtml(s.label)}</span>
+      <span class="toc-dot"></span>
     </button>`;
   }).join('');
   toc.innerHTML = membersBtn + commentsBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
