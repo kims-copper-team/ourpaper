@@ -580,6 +580,11 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .tbl-card{ display:flex; flex-direction:column; gap:6px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; }
 .tbl-card.dragging{ opacity:0.35; }
 .tbl-card.drag-over{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
+.tbl-drag-handle{ flex-shrink:0; color:var(--ink-faint); font-size:15px; cursor:grab; letter-spacing:-2px; user-select:none; padding:0 4px; }
+.tbl-drag-handle:active{ cursor:grabbing; }
+.ledger-unplaced-sep{ display:flex; align-items:center; gap:10px; margin:8px 0 4px; color:var(--ink-faint); font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; }
+.ledger-unplaced-sep::before,.ledger-unplaced-sep::after{ content:''; flex:1; height:1px; background:var(--line); }
+.ledger-unplaced-sep::before{ flex:0 0 0px; }
 .tbl-card-head{ display:flex; align-items:center; gap:10px; }
 .tbl-grid-wrap{ overflow-x:auto; margin-top:4px; }
 .tbl-edit-grid{ border-collapse:collapse; }

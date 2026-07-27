@@ -2658,17 +2658,19 @@ function renderFigureManager(project){
   const figures = state.figures || [];
   const order = computeFigureOrder(project, figures);
   const byId = new Map(figures.map(f => [f.id, f]));
-  const orderedFigures = order.map(id => byId.get(id)).filter(Boolean);
+  const embeddedSet = new Set(figures.filter(f => isFigureEmbedded(project, f.id)).map(f => f.id));
+  const embeddedOrder = order.filter(id => embeddedSet.has(id));
+  const unplacedOrder = order.filter(id => !embeddedSet.has(id));
 
-  const cards = orderedFigures.map((f, i) => {
-    const embedded = isFigureEmbedded(project, f.id);
+  function figCard(f, num, draggable){
     return `
-    <div class="fig-card" data-fig-id="${f.id}">
+    <div class="fig-card" data-fig-id="${f.id}"${draggable ? ' draggable="true"' : ''}>
+      ${draggable ? '<div class="fig-drag-handle" title="드래그하여 순서 변경">⠿</div>' : ''}
       <div class="fig-thumb-wrap"><img src="${figureSrc(f)}" alt="${escapeHtml(f.fileName)}" /></div>
       <div class="fig-body">
         <div class="fig-head-row">
-          <span class="fig-label">Fig. ${i+1}</span>
-          <span class="fig-embed-badge ${embedded ? 'is-embedded' : 'is-unplaced'}">${embedded ? '본문에 삽입됨' : '아직 미삽입'}</span>
+          <span class="fig-label">${num != null ? `Fig. ${num}` : 'Fig. —'}</span>
+          <span class="fig-embed-badge ${num != null ? 'is-embedded' : 'is-unplaced'}">${num != null ? '본문에 삽입됨' : '아직 미삽입'}</span>
           <div class="fig-actions">
             <button title="그림 교체" onclick="triggerReplaceFigure('${f.id}')">🔄</button>
             <button title="자르기" onclick="openFigureCropModal('${f.id}')">✂︎</button>
@@ -2681,9 +2683,14 @@ function renderFigureManager(project){
         <label class="fig-field-label fig-field-label-note">팀 댓글</label>
         ${renderItemThreadHtml('figure', f.id)}
       </div>
-    </div>
-  `;
-  }).join('');
+    </div>`;
+  }
+
+  const embeddedCards = embeddedOrder.map((id, i) => figCard(byId.get(id), i + 1, false)).join('');
+  const sep = (embeddedOrder.length > 0 && unplacedOrder.length > 0)
+    ? '<div class="ledger-unplaced-sep">미삽입</div>' : '';
+  const unplacedCards = unplacedOrder.map(id => figCard(byId.get(id), null, true)).join('');
+  const cards = embeddedCards + sep + unplacedCards;
 
   pane.innerHTML = `
     <div class="editor-head"><h2>Fig Ledger</h2><span class="section-limit">${figures.length}개</span></div>
@@ -2744,6 +2751,58 @@ function renderFigureManager(project){
       scheduleFigureSave();
     });
   });
+
+  _initFigDragDrop(project);
+}
+
+function _initFigDragDrop(project){
+  const list = document.getElementById('fig-list');
+  if(!list) return;
+  let dragId = null;
+  list.querySelectorAll('.fig-card[draggable="true"]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      dragId = card.dataset.figId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragId);
+      setTimeout(() => card.classList.add('dragging'), 0);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      list.querySelectorAll('.fig-card').forEach(c => c.classList.remove('drag-over'));
+      dragId = null;
+    });
+    card.addEventListener('dragover', e => {
+      if(!dragId || card.dataset.figId === dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.fig-card').forEach(c => c.classList.remove('drag-over'));
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      const targetId = card.dataset.figId;
+      card.classList.remove('drag-over');
+      if(!dragId || dragId === targetId) return;
+      reorderUnplacedFigure(dragId, targetId, project);
+      dragId = null;
+    });
+  });
+}
+
+async function reorderUnplacedFigure(dragId, targetId, project){
+  const figures = state.figures || [];
+  const fromIdx = figures.findIndex(f => f.id === dragId);
+  const toIdx   = figures.findIndex(f => f.id === targetId);
+  if(fromIdx === -1 || toIdx === -1) return;
+  const next = [...figures];
+  const [moved] = next.splice(fromIdx, 1);
+  const insertAt = next.findIndex(f => f.id === targetId);
+  next.splice(insertAt, 0, moved);
+  state.figures = next;
+  await setFigures(state.currentProjectId, state.figures);
+  const fresh = await getProject(state.currentProjectId);
+  if(fresh) renderWorkspace(fresh);
 }
 
 function handleFigureFiles(fileList){
@@ -2810,8 +2869,13 @@ function renderTableManager(project){
   }
 
   const tables = state.tables || [];
+  const order = computeTableOrder(project, tables);
+  const embeddedSet = new Set(tables.filter(t => isTableEmbedded(project, t.id)).map(t => t.id));
+  const embeddedOrder = order.filter(id => embeddedSet.has(id));
+  const unplacedOrder = order.filter(id => !embeddedSet.has(id));
+  const tblById = new Map(tables.map(t => [t.id, t]));
 
-  const cards = tables.map((t, i) => {
+  function tblCard(t, num, draggable){
     const columns = t.columns || [];
     const rows = t.rows || [];
     const headHtml = columns.map((c, ci) => `
@@ -2820,23 +2884,19 @@ function renderTableManager(project){
           <input class="tbl-cell-input" data-table-id="${t.id}" data-kind="col" data-ci="${ci}" value="${escapeHtml(c)}" placeholder="열 이름" style="font-weight:600;">
           ${columns.length > 1 ? `<button class="tbl-col-remove" title="열 삭제" onclick="removeTableColumn('${t.id}',${ci})">✕</button>` : ''}
         </div>
-      </th>
-    `).join('');
+      </th>`).join('');
     const bodyHtml = rows.map((row, ri) => `
       <tr>
         ${columns.map((c, ci) => `<td><input class="tbl-cell-input" data-table-id="${t.id}" data-kind="cell" data-ri="${ri}" data-ci="${ci}" value="${escapeHtml(row[ci] || '')}"></td>`).join('')}
         <td class="tbl-grid-actions"><button title="행 삭제" onclick="removeTableRow('${t.id}',${ri})">✕</button></td>
-      </tr>
-    `).join('');
-
+      </tr>`).join('');
     return `
-    <div class="tbl-card" draggable="true" data-table-id="${t.id}">
+    <div class="tbl-card" data-table-id="${t.id}"${draggable ? ' draggable="true"' : ''}>
       <div class="tbl-card-head">
-        <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
-        <span class="fig-label">Table ${i+1}</span>
+        ${draggable ? '<div class="tbl-drag-handle" title="드래그하여 순서 변경">⠿</div>' : ''}
+        <span class="fig-label">${num != null ? `Table ${num}` : 'Table —'}</span>
+        <span class="fig-embed-badge ${num != null ? 'is-embedded' : 'is-unplaced'}">${num != null ? '본문에 삽입됨' : '아직 미삽입'}</span>
         <div class="fig-actions" style="margin-left:auto;">
-          <button title="위로" onclick="moveTable('${t.id}',-1)" ${i===0?'disabled style="opacity:.3;"':''}>↑</button>
-          <button title="아래로" onclick="moveTable('${t.id}',1)" ${i===tables.length-1?'disabled style="opacity:.3;"':''}>↓</button>
           <button class="fig-delete" title="삭제" onclick="removeTable('${t.id}')">✕</button>
         </div>
       </div>
@@ -2852,11 +2912,17 @@ function renderTableManager(project){
       <label class="fig-field-label fig-field-label-note" style="margin-top:12px;">팀 댓글</label>
       ${renderItemThreadHtml('table', t.id)}
     </div>`;
-  }).join('');
+  }
+
+  const embeddedCards = embeddedOrder.map((id, i) => tblCard(tblById.get(id), i + 1, false)).join('');
+  const sep = (embeddedOrder.length > 0 && unplacedOrder.length > 0)
+    ? '<div class="ledger-unplaced-sep">미삽입</div>' : '';
+  const unplacedCards = unplacedOrder.map(id => tblCard(tblById.get(id), null, true)).join('');
+  const cards = embeddedCards + sep + unplacedCards;
 
   pane.innerHTML = `
     <div class="editor-head"><h2>Table Ledger</h2><span class="section-limit">${tables.length}개</span></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">표를 만들고 캡션을 작성하세요. 만든 순서대로 Table 1, 2, 3…으로 번호가 매겨지고, 카드를 끌어다 놓거나(⋮⋮) 화살표로 순서를 바꿀 수 있어요. 본문 섹션에서는 "＋ 표 삽입" 버튼으로 표 전체를 캡션과 함께 커서 위치에 넣거나, 표는 다른 곳에 두고 "Table N" 인용만 넣을 수 있어요. 순서를 바꾸면 본문의 "Table N" 표기도 자동으로 업데이트돼요. Word로 내보내면 3선(three-line) 표 형식으로 정리됩니다.</div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">표를 만들고 캡션을 작성하세요. Table 번호는 <b>본문에 삽입된 순서</b>로 자동 계산되고, 아직 미삽입인 표는 ⠿ 핸들로 드래그해 순서를 바꿀 수 있어요. 본문 섹션에서는 "＋ 표 삽입" 버튼으로 표 전체 또는 "Table N" 인용만 삽입할 수 있어요. Word로 내보내면 3선(three-line) 표 형식으로 정리됩니다.</div>
 
     <button class="btn secondary small" style="margin-bottom:16px;" onclick="addNewTable()">＋ 표 추가</button>
     <div class="fig-list" id="tbl-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 만든 표가 없습니다</div>`}</div>
@@ -2901,19 +2967,26 @@ function renderTableManager(project){
     });
   });
 
-  // 드래그 앤 드롭 순서 변경
+  // 드래그 앤 드롭 — 미삽입 표만 대상
   let dragSrcId = null;
-  pane.querySelectorAll('.tbl-card').forEach(card => {
+  pane.querySelectorAll('.tbl-card[draggable="true"]').forEach(card => {
     card.addEventListener('dragstart', (e) => {
       dragSrcId = card.dataset.tableId;
-      card.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', card.dataset.tableId);
+      e.dataTransfer.setData('text/plain', dragSrcId);
+      setTimeout(() => card.classList.add('dragging'), 0);
     });
-    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      pane.querySelectorAll('.tbl-card').forEach(c => c.classList.remove('drag-over'));
+      dragSrcId = null;
+    });
     card.addEventListener('dragover', (e) => {
+      if(!dragSrcId || card.dataset.tableId === dragSrcId) return;
       e.preventDefault();
-      if(card.dataset.tableId !== dragSrcId) card.classList.add('drag-over');
+      e.dataTransfer.dropEffect = 'move';
+      pane.querySelectorAll('.tbl-card').forEach(c => c.classList.remove('drag-over'));
+      card.classList.add('drag-over');
     });
     card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
     card.addEventListener('drop', (e) => {
@@ -2921,6 +2994,7 @@ function renderTableManager(project){
       card.classList.remove('drag-over');
       const targetId = card.dataset.tableId;
       if(dragSrcId && dragSrcId !== targetId) reorderTables(dragSrcId, targetId);
+      dragSrcId = null;
     });
   });
 }
