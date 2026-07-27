@@ -294,6 +294,83 @@ function isUnnumberedSection(sec){
 function looksLikeHtml(str){
   return !!str && /<[a-z][\s\S]*>/i.test(str);
 }
+
+// Word(mso) HTML에서 스타일/클래스를 제거하고 의미론적 서식만 보존한다.
+function cleanWordHtml(rawHtml) {
+  let html = rawHtml
+    .replace(/<!--\[if[^\]]*\][\s\S]*?<!\[endif\]-->/gi, '')  // Word 조건 주석
+    .replace(/<\/?[a-zA-Z]+:[a-zA-Z\w]*[^>]*>/g, '');         // o:p, w:* 등 네임스페이스 태그
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('style,meta,script,link').forEach(el => el.remove());
+
+  function clean(node) {
+    if (!node.parentNode) return;
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    Array.from(node.childNodes).forEach(clean);
+    if (!node.parentNode) return;
+
+    const tag = node.tagName.toLowerCase();
+
+    if (['script','style','noscript','img','video','audio','iframe'].includes(tag)) {
+      node.remove(); return;
+    }
+
+    if (tag === 'span') {
+      const s = node.style;
+      const fw = parseInt(s.fontWeight, 10) || 0;
+      const bold = s.fontWeight === 'bold' || fw >= 700;
+      const italic = s.fontStyle === 'italic';
+      const underline = (s.textDecoration || '').includes('underline');
+      const semTags = [];
+      if (bold) semTags.push('strong');
+      if (italic) semTags.push('em');
+      if (underline) semTags.push('u');
+
+      if (semTags.length) {
+        let outer = doc.createElement(semTags[0]);
+        let inner = outer;
+        for (let i = 1; i < semTags.length; i++) {
+          const next = doc.createElement(semTags[i]);
+          inner.appendChild(next); inner = next;
+        }
+        while (node.firstChild) inner.appendChild(node.firstChild);
+        node.parentNode.insertBefore(outer, node);
+      } else {
+        while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+      }
+      node.remove(); return;
+    }
+
+    const unwrap = new Set(['font','center','table','tbody','thead','tfoot','tr','fieldset','form']);
+    if (unwrap.has(tag)) {
+      while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+      node.remove(); return;
+    }
+
+    if (tag === 'td' || tag === 'th') {
+      const div = doc.createElement('div');
+      while (node.firstChild) div.appendChild(node.firstChild);
+      node.parentNode.insertBefore(div, node);
+      node.remove(); return;
+    }
+
+    while (node.attributes.length) node.removeAttribute(node.attributes[0].name);
+  }
+
+  Array.from(doc.body.childNodes).forEach(clean);
+
+  doc.body.querySelectorAll('p,div,li').forEach(el => {
+    if (!el.textContent.replace(/[\s ]/g, '') && !el.querySelector('img,br')) el.remove();
+  });
+
+  return doc.body.innerHTML
+    .replace(/&nbsp;/g, ' ')
+    .replace(/ /g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 function plainTextToEditableHtml(text){
   if(!text) return '';
   if(looksLikeHtml(text)) return text; // 이미 새 방식(그림 삽입 포함)으로 저장된 내용
@@ -852,6 +929,24 @@ function renderManuscriptCanvas(project, isCustom){
     const broadcastThrottled = throttleTrailing((html) => {
       broadcastSectionEdit(sec.key, html, getCaretCharOffset(contentInput));
     }, 150);
+
+    contentInput.addEventListener('paste', (e) => {
+      const cd = e.clipboardData || window.clipboardData;
+      if (!cd) return;
+      const htmlData = cd.getData('text/html');
+      const textData = cd.getData('text/plain');
+      // Word / 외부 앱 HTML만 정리 (내부 복붙은 브라우저에 맡김)
+      const isWordOrExternal = /xmlns:|mso-|<o:|urn:schemas-microsoft-com/i.test(htmlData);
+      if (!htmlData || !isWordOrExternal) return;
+      e.preventDefault();
+      let cleanHtml = cleanWordHtml(htmlData);
+      if (!cleanHtml.trim() && textData) {
+        cleanHtml = textData.split('\n')
+          .map(line => `<div>${escapeHtml(line.trim()) || '<br>'}</div>`)
+          .join('');
+      }
+      if (cleanHtml) document.execCommand('insertHTML', false, cleanHtml);
+    });
 
     contentInput.addEventListener('input', ()=>{
       _lastTypedAt[sec.key] = Date.now();
