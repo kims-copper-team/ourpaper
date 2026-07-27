@@ -2653,6 +2653,7 @@ function renderFigureManager(project){
           <span class="fig-label">Fig. ${i+1}</span>
           <span class="fig-embed-badge ${embedded ? 'is-embedded' : 'is-unplaced'}">${embedded ? '본문에 삽입됨' : '아직 미삽입'}</span>
           <div class="fig-actions">
+            <button title="그림 교체" onclick="triggerReplaceFigure('${f.id}')">🔄</button>
             <button title="자르기" onclick="openFigureCropModal('${f.id}')">✂︎</button>
             <button class="fig-delete" title="삭제" onclick="removeFigure('${f.id}')">✕</button>
           </div>
@@ -2679,10 +2680,19 @@ function renderFigureManager(project){
     </label>
 
     <div class="fig-list" id="fig-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 업로드한 그림이 없습니다</div>`}</div>
+    <input type="file" id="fig-replace-input" accept="image/*" style="display:none;" />
   `;
 
   const fileInput = document.getElementById('fig-file-input');
   fileInput.addEventListener('change', (e) => { handleFigureFiles(e.target.files); fileInput.value = ''; });
+
+  const replaceInput = document.getElementById('fig-replace-input');
+  replaceInput.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    const figId = replaceInput.dataset.targetFigId;
+    replaceInput.value = '';
+    if(file && figId) replaceFigureWithFile(figId, file);
+  });
 
   const dropZone = document.getElementById('fig-drop-zone');
   ['dragover','dragenter'].forEach(evt => dropZone.addEventListener(evt, (e)=>{
@@ -4721,6 +4731,50 @@ function scheduleAuthorSave(){
   state.authorSaveTimer = setTimeout(async () => {
     await setProjectAuthors(state.currentProjectId, state.authors || []);
   }, 500);
+}
+
+function triggerReplaceFigure(figId){
+  const input = document.getElementById('fig-replace-input');
+  if(!input) return;
+  input.dataset.targetFigId = figId;
+  input.click();
+}
+
+async function replaceFigureWithFile(figId, file){
+  if(!file.type.startsWith('image/')){ showToast('이미지 파일만 선택해주세요'); return; }
+  if(file.size > FIG_MAX_BYTES){ showToast('파일 크기가 25MB를 초과해요'); return; }
+
+  const idx = (state.figures || []).findIndex(f => f.id === figId);
+  if(idx === -1){ showToast('그림을 찾을 수 없어요'); return; }
+
+  showToast('업로드 중…');
+
+  const extMatch = /\.([a-zA-Z0-9]+)$/.exec(file.name || '');
+  const ext = (extMatch ? extMatch[1] : 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+  const newPath = `${state.currentProjectId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+
+  const { error: uploadError } = await window.sb.storage.from('figures').upload(newPath, file, { contentType: file.type || undefined });
+  if(uploadError){ showToast('업로드에 실패했어요: ' + (uploadError.message || '다시 시도해주세요')); return; }
+
+  const { data: pub } = window.sb.storage.from('figures').getPublicUrl(newPath);
+
+  const oldPath = state.figures[idx].storagePath;
+  state.figures[idx] = {
+    ...state.figures[idx],
+    fileName: file.name,
+    storagePath: newPath,
+    url: pub.publicUrl,
+    cropData: undefined // 교체 시 이전 크롭은 초기화
+  };
+
+  const ok = await setFigures(state.currentProjectId, state.figures);
+  if(!ok){ showToast('저장에 실패했어요. 다시 시도해주세요'); return; }
+
+  if(oldPath) window.sb.storage.from('figures').remove([oldPath]).catch(() => {});
+
+  showToast('그림이 교체됐어요');
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
 }
 
 async function removeFigure(id){
