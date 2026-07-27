@@ -3867,7 +3867,9 @@ function renderRefManager(project){
     <div class="ref-add-form" id="ref-add-form">
       <textarea id="ref-new-text" placeholder="전체 참고문헌 텍스트를 붙여넣거나 직접 입력하세요 (예: H.J. Kim, et al., Microstructure evolution in Al-Mg-Si alloys, Acta Mater. 68 (2021) 112–120.)"></textarea>
       <input type="text" id="ref-new-doi" placeholder="DOI 또는 링크 (선택)" />
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <label class="fig-field-label" style="margin-top:4px;">메모 (선택)</label>
+      <textarea id="ref-new-memo" class="ref-memo-input" placeholder="핵심 내용, 인용 이유 등 간단한 메모를 남겨보세요"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
         <button class="btn secondary small" onclick="cancelAddReference()">취소</button>
         <button class="btn small" onclick="submitReference()">추가</button>
       </div>
@@ -3952,11 +3954,12 @@ function cancelAddReference(){
 async function submitReference(){
   const text = document.getElementById('ref-new-text').value.trim();
   const doi = document.getElementById('ref-new-doi').value.trim();
+  const memo = document.getElementById('ref-new-memo').value.trim();
   if(!text){ showToast('참고문헌 전체 텍스트를 입력해주세요'); return; }
   state.references = state.references || [];
   state.references.push({
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-    text, doi, addedAt: Date.now()
+    text, doi, memo, addedAt: Date.now()
   });
   refFormOpen = false;
   const project = await getProject(state.currentProjectId);
