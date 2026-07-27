@@ -1780,14 +1780,39 @@ function _pickerOutsideClick(e){
   if(!p.contains(e.target)){ closeInsertPicker(); document.removeEventListener('mousedown', _pickerOutsideClick); }
 }
 
+function _positionPickerPanel(panel){
+  const tb = document.getElementById('cursor-toolbar');
+  const W = window.innerWidth;
+  const panelW = 320;
+  let top, left;
+  if(tb && tb.classList.contains('ctb-visible')){
+    const r = tb.getBoundingClientRect();
+    top = r.bottom + 8;
+    left = r.left;
+  } else {
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    const r = range ? range.getBoundingClientRect() : null;
+    if(r && r.bottom > 0){ top = r.bottom + 12; left = r.left; }
+    else { top = 120; left = Math.max(8, Math.floor(W / 2) - panelW / 2); }
+  }
+  panel.style.top  = Math.max(60, top) + 'px';
+  panel.style.left = Math.max(8, Math.min(W - panelW - 8, left)) + 'px';
+  panel.style.width = panelW + 'px';
+}
+
 function toggleInsertPicker(kind, sectionKey){
   const existing = document.getElementById('inline-insert-picker');
   if(existing){
     const wasKind = existing.dataset.kind;
     const wasSection = existing.dataset.sectionKey || '';
     existing.remove();
+    document.removeEventListener('mousedown', _pickerOutsideClick);
     if(wasKind === kind && wasSection === (sectionKey || '')) return; // 같은 버튼을 다시 누르면 닫기만 함
   }
+  // 열 때마다 embed 모드로 초기화 — 인용만(cite) 모드가 기본값으로 굳지 않도록
+  if(kind === 'figures') state.figInsertMode = 'embed';
+  if(kind === 'tables') state.tableInsertMode = 'embed';
   if(sectionKey){
     state.activeTextareaId = 'sec-content-input-' + sectionKey;
     // 팝오버 안의 체크박스/버튼을 클릭하면 본문이 포커스를 잃으면서 커서 위치가
@@ -1797,9 +1822,6 @@ function toggleInsertPicker(kind, sectionKey){
     const sel = window.getSelection();
     state.savedInsertRange = (el && sel.rangeCount && el.contains(sel.anchorNode)) ? sel.getRangeAt(0).cloneRange() : null;
   }
-  const container = sectionKey ? document.getElementById('ms-section-' + sectionKey) : document.querySelector('.editor-pane');
-  const head = container ? container.querySelector('.editor-head') : document.querySelector('.editor-head');
-  if(!head){ showToast('삽입 패널을 열 위치를 찾지 못했어요'); return; }
   const panel = document.createElement('div');
   panel.id = 'inline-insert-picker';
   panel.className = 'inline-insert-picker';
@@ -1807,7 +1829,8 @@ function toggleInsertPicker(kind, sectionKey){
   if(sectionKey) panel.dataset.sectionKey = sectionKey;
   const closeBtn = `<div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>`;
   panel.innerHTML = closeBtn + (kind === 'figures' ? buildFigureInsertPanel() : kind === 'tables' ? buildTableInsertPanel() : buildRefInsertItemsHtml());
-  head.insertAdjacentElement('afterend', panel);
+  document.body.appendChild(panel); // flow 바깥(body)에 fixed로 붙여 레이아웃 영향 없음
+  _positionPickerPanel(panel);
   setTimeout(() => document.addEventListener('mousedown', _pickerOutsideClick), 0);
 }
 
@@ -1897,7 +1920,7 @@ function initCursorToolbar(){
       <span class="ctb-sep"></span>
       <button class="ctb-btn" id="ctb-tbl">＋ 표</button>
       <span class="ctb-sep"></span>
-      <button class="ctb-btn" id="ctb-ref">＋ 인용</button>
+      <button class="ctb-btn" id="ctb-ref">＋ 참고문헌</button>
     `;
     tb.addEventListener('mousedown', e => e.preventDefault());
     tb.querySelector('#ctb-fig').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('figures', k); });
