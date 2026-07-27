@@ -44,7 +44,8 @@ let state = {
   activeTextareaId:null, // 인용/그림/표 삽입 시 커서를 넣을 대상 textarea id
   openProject:null, // 현재 렌더링된 project 객체(실시간 브로드캐스트가 갱신할 대상)
   realtimeChannel:null, presenceUsers:{}, pendingRemoteEdits:{},
-  followingUserId:null // 화면 따라가기 대상 userId
+  followingUserId:null, // 화면 따라가기 대상 userId
+  notifications:[] // 실시간 알림 목록 (최신순, 최대 60개)
 };
 
 const LEDGER_KEYS = ['__members__', '__authors__', '__figures__', '__refs__', '__tables__', '__comments__'];
@@ -3698,7 +3699,14 @@ function handleRemoteHighlightEvent(payload){
   if(action === 'create'){
     const idx = state.highlights.findIndex(h => h.id === highlight.id);
     if(idx === -1) state.highlights.push(highlight); else state.highlights[idx] = highlight;
-    showCommentNotification(highlight);
+    const hlAuthor = highlight.displayName || highlight.email || '누군가';
+    const hlQuote = (highlight.quoteText || '').slice(0, 60);
+    addNotification({
+      type: 'highlight', author: hlAuthor,
+      body: hlQuote ? `"${hlQuote}"` : '새 하이라이트가 추가됐어요',
+      color: colorForUser(highlight.userId),
+      action: { type: 'highlight', id: highlight.id }
+    });
   } else if(action === 'update'){
     const idx = state.highlights.findIndex(h => h.id === highlight.id);
     if(idx === -1) state.highlights.push(highlight); else state.highlights[idx] = highlight;
@@ -3718,6 +3726,119 @@ function handleRemoteHighlightEvent(payload){
   if(state.currentSectionKey === '__comments__' && state.openProject) renderCommentsManager(state.openProject);
   else if(state.openProject) refreshTocOnly(state.openProject);
 }
+
+/* ============== 실시간 알림 센터 ============== */
+const NOTIF_ICONS = { chat:'💬', comment:'🗨️', highlight:'✏️' };
+const NOTIF_LABELS = { chat:'팀 채팅', comment:'댓글', highlight:'하이라이트' };
+
+function addNotification({ type, author, body, color, action }){
+  const notif = {
+    id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2,5),
+    type, author, body, color, action,
+    createdAt: Date.now(), read: false
+  };
+  state.notifications.unshift(notif);
+  if(state.notifications.length > 60) state.notifications.pop();
+  _renderNotifBadge();
+  _showNotifToast(notif);
+  return notif;
+}
+
+function _renderNotifBadge(){
+  const badge = document.getElementById('notif-badge');
+  if(!badge) return;
+  const unread = state.notifications.filter(n => !n.read).length;
+  badge.textContent = unread > 9 ? '9+' : String(unread);
+  badge.style.display = unread > 0 ? '' : 'none';
+}
+
+function _showNotifToast(notif){
+  const el = document.createElement('div');
+  el.className = 'notif-toast';
+  el.innerHTML = `
+    <div class="notif-toast-head">
+      <span class="notif-toast-dot" style="background:${notif.color}"></span>
+      <span class="notif-toast-type">${NOTIF_ICONS[notif.type] || ''} ${NOTIF_LABELS[notif.type] || ''}</span>
+      <strong class="notif-toast-author" style="color:${notif.color};">${escapeHtml(notif.author)}</strong>
+    </div>
+    <div class="notif-toast-body">${escapeHtml(notif.body)}</div>
+  `;
+  el.addEventListener('click', () => { el.remove(); _executeNotifAction(notif); });
+  document.body.appendChild(el);
+  playNotificationSound();
+  setTimeout(() => { el.classList.add('notif-toast-hide'); setTimeout(() => el.remove(), 400); }, 5000);
+}
+
+function toggleNotifPanel(){
+  const panel = document.getElementById('notif-panel');
+  if(!panel) return;
+  const open = panel.classList.toggle('notif-panel-open');
+  if(open){
+    state.notifications.forEach(n => { n.read = true; });
+    _renderNotifBadge();
+    _renderNotifList();
+  }
+}
+
+function _renderNotifList(){
+  const el = document.getElementById('notif-list');
+  if(!el) return;
+  if(!state.notifications.length){
+    el.innerHTML = '<div class="notif-empty">새 알림이 없어요</div>';
+    return;
+  }
+  el.innerHTML = state.notifications.map(n => `
+    <div class="notif-row" data-notif-id="${n.id}">
+      <span class="notif-row-dot" style="background:${n.color}"></span>
+      <div class="notif-row-content">
+        <div class="notif-row-meta">
+          <span class="notif-row-type">${NOTIF_ICONS[n.type] || ''} ${NOTIF_LABELS[n.type] || ''}</span>
+          <span class="notif-row-author" style="color:${n.color};">${escapeHtml(n.author)}</span>
+          <span class="notif-row-time">${fmtChatTime(n.createdAt)}</span>
+        </div>
+        <div class="notif-row-body">${escapeHtml(n.body)}</div>
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.notif-row[data-notif-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const notif = state.notifications.find(n => n.id === row.dataset.notifId);
+      if(!notif) return;
+      document.getElementById('notif-panel').classList.remove('notif-panel-open');
+      _executeNotifAction(notif);
+    });
+  });
+}
+
+function _executeNotifAction(notif){
+  const a = notif.action;
+  if(!a) return;
+  if(a.type === 'chat' || a.type === 'members') selectMembers();
+  else if(a.type === 'figure') selectFigures();
+  else if(a.type === 'table') selectTables();
+  else if(a.type === 'reference') selectReferences();
+  else if(a.type === 'highlight') jumpToHighlight(a.id);
+  else if(a.type === 'section'){
+    const map = { '__refs__': selectReferences, '__figures__': selectFigures,
+                  '__tables__': selectTables, '__comments__': selectComments, '__members__': selectMembers };
+    if(map[a.key]) map[a.key]();
+  }
+}
+
+function clearAllNotifs(){
+  state.notifications = [];
+  _renderNotifBadge();
+  _renderNotifList();
+}
+
+// 패널 바깥 클릭 시 닫기
+document.addEventListener('click', (e) => {
+  const wrapper = document.getElementById('notif-wrapper');
+  const panel = document.getElementById('notif-panel');
+  if(panel && panel.classList.contains('notif-panel-open') && wrapper && !wrapper.contains(e.target)){
+    panel.classList.remove('notif-panel-open');
+  }
+});
 
 function showCommentNotification(h){
   const author = h.displayName || h.email || '누군가';
@@ -3924,15 +4045,24 @@ function handleRemoteItemCommentEvent(payload){
 
   if(action === 'create'){
     if(!state.itemComments.find(c => c.id === comment.id)) state.itemComments.push(comment);
+    const _author = comment.displayName || comment.email || '누군가';
+    const _color  = colorForUser(comment.userId);
     if(isChat){
       refreshChatPanel();
-      if(state.currentSectionKey !== '__members__'){
-        const author = comment.displayName || comment.email || '누군가';
-        const preview = (comment.content || '').slice(0, 48);
-        showChatNotification(author, preview, colorForUser(comment.userId));
-      }
+      addNotification({
+        type: 'chat', author: _author,
+        body: (comment.content || '').slice(0, 60),
+        color: _color,
+        action: { type: 'members' }
+      });
     } else {
       refreshItemThread(comment.itemType, comment.itemId);
+      addNotification({
+        type: 'comment', author: _author,
+        body: (comment.content || '').slice(0, 60),
+        color: _color,
+        action: { type: comment.itemType, id: comment.itemId }
+      });
     }
   } else if(action === 'delete'){
     state.itemComments = state.itemComments.filter(c => c.id !== comment.id);

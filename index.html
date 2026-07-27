@@ -24,6 +24,21 @@
         <button id="tab-guide" onclick="goTab('guide')">투고 절차 가이드</button>
         <button id="tab-admin" onclick="goTab('admin')" style="display:none;">관리자</button>
       </nav>
+      <div class="notif-wrapper" id="notif-wrapper">
+        <button class="notif-bell" id="notif-bell" onclick="toggleNotifPanel()" title="알림">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-badge" id="notif-badge" style="display:none;">0</span>
+        </button>
+        <div class="notif-panel" id="notif-panel">
+          <div class="notif-panel-head">
+            <span class="notif-panel-title">알림</span>
+            <button class="btn secondary small" onclick="clearAllNotifs()">모두 지우기</button>
+          </div>
+          <div class="notif-list" id="notif-list">
+            <div class="notif-empty">새 알림이 없어요</div>
+          </div>
+        </div>
+      </div>
       <div class="user-info" id="user-info"></div>
     </div>
   </header>
