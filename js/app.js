@@ -1903,7 +1903,7 @@ async function submitRefInsertPick(){
   const checked = Array.from(document.querySelectorAll('.insert-ref-checkbox:checked'));
   if(!checked.length) return;
   const nums = checked.map(el => parseInt(el.value,10)+1);
-  insertContentAtCursor(`<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(nums)}]</span>`);
+  insertInlineToken('body-ref-token', `[${compressRefNumbers(nums)}]`);
   // 인접/중첩 인용 괄호 자동 정리
   const el = state.activeTextareaId && document.getElementById(state.activeTextareaId);
   if(el){
@@ -2187,6 +2187,47 @@ function _onSelectionChange(){
   tb.classList.add('ctb-visible');
 }
 
+// contenteditable=false 인라인 토큰(Fig. N, Table N, [1-3])을 커서 위치에 삽입.
+// execCommand('insertHTML')은 블록 끝에서 span을 새 div로 분리하는 버그가 있어서,
+// Range API로 직접 삽입하고 span 뒤에 빈 텍스트 노드를 만들어 커서를 고정한다.
+function insertInlineToken(className, text){
+  const el = document.getElementById(state.activeTextareaId);
+  if(!el){ showToast('삽입할 위치를 찾지 못했어요. 본문을 한 번 클릭한 뒤 다시 시도해주세요'); return; }
+  el.focus();
+  const sel = window.getSelection();
+  if(state.savedInsertRange && el.contains(state.savedInsertRange.startContainer)){
+    sel.removeAllRanges();
+    sel.addRange(state.savedInsertRange);
+  } else if(!sel.rangeCount || !el.contains(sel.anchorNode)){
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+  state.savedInsertRange = null;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const span = document.createElement('span');
+  span.className = className;
+  span.setAttribute('contenteditable', 'false');
+  span.textContent = text;
+  range.insertNode(span);
+  // span 바로 뒤에 텍스트 노드가 없으면 하나 만들어 커서를 그 안에 놓는다.
+  // 없으면 다음 키 입력 시 브라우저가 새 줄을 만들어버린다.
+  let after = span.nextSibling;
+  if(!after || after.nodeType !== Node.TEXT_NODE){
+    after = document.createTextNode('');
+    span.after(after);
+  }
+  const newRange = document.createRange();
+  newRange.setStart(after, 0);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+  el.dispatchEvent(new Event('input', { bubbles:true }));
+}
+
 // 본문(contenteditable) 커서 위치에 HTML 조각을 삽입
 function insertContentAtCursor(html){
   const el = document.getElementById(state.activeTextareaId);
@@ -2248,7 +2289,7 @@ async function pickFigureInsert(figId){
   } else {
     const num = project ? figureNumberById(project, figures, f.id) : null;
     if(num == null){ showToast('먼저 그림을 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
-    insertContentAtCursor(`<span class="body-fig-token" contenteditable="false">Fig. ${num}</span>`);
+    insertInlineToken('body-fig-token', `Fig. ${num}`);
     closeInsertPicker();
   }
 }
@@ -2336,7 +2377,7 @@ async function pickTableInsert(tableId){
   } else {
     const num = project ? tableNumberById(project, tables, t.id) : null;
     if(num == null){ showToast('먼저 표를 본문에 삽입한 후 인용 번호를 사용하세요'); return; }
-    insertContentAtCursor(`<span class="body-table-token" contenteditable="false">Table ${num}</span>`);
+    insertInlineToken('body-table-token', `Table ${num}`);
     closeInsertPicker();
   }
 }
