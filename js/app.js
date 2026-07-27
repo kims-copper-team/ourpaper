@@ -1935,23 +1935,42 @@ function _pickerOutsideClick(e){
 
 function _positionPickerPanel(panel){
   const tb = document.getElementById('cursor-toolbar');
-  const W = window.innerWidth;
-  const panelW = 320;
-  let top, left;
+  const W = window.innerWidth, H = window.innerHeight;
+  const panelW = 320, GAP = 8, TOP_GUARD = 60;
+  let anchorTop, anchorBottom, left;
+
   if(tb && tb.classList.contains('ctb-visible')){
     const r = tb.getBoundingClientRect();
-    top = r.bottom + 8;
-    left = r.left;
+    anchorTop = r.top; anchorBottom = r.bottom; left = r.left;
   } else {
     const sel = window.getSelection();
     const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
     const r = range ? range.getBoundingClientRect() : null;
-    if(r && r.bottom > 0){ top = r.bottom + 12; left = r.left; }
-    else { top = 120; left = Math.max(8, Math.floor(W / 2) - panelW / 2); }
+    if(r && r.bottom > 0){ anchorTop = r.top; anchorBottom = r.bottom; left = r.left; }
+    else { anchorTop = 120; anchorBottom = 130; left = Math.max(GAP, Math.floor(W / 2) - panelW / 2); }
   }
-  panel.style.top  = Math.max(60, top) + 'px';
-  panel.style.left = Math.max(8, Math.min(W - panelW - 8, left)) + 'px';
-  panel.style.width = panelW + 'px';
+
+  left = Math.max(GAP, Math.min(W - panelW - GAP, left));
+
+  const spaceBelow = H - anchorBottom - GAP;
+  const spaceAbove = anchorTop - TOP_GUARD - GAP;
+  const PICKER_MAX_H = 320;
+
+  let top, maxH;
+  if(spaceBelow >= Math.min(PICKER_MAX_H, 160) || spaceBelow >= spaceAbove){
+    // 아래 배치
+    top = anchorBottom + GAP;
+    maxH = Math.max(120, Math.min(PICKER_MAX_H, spaceBelow));
+  } else {
+    // 위로 뒤집기 — 위 공간 기준으로 패널 아래 끝을 anchor 위에 붙임
+    maxH = Math.max(120, Math.min(PICKER_MAX_H, spaceAbove));
+    top = anchorTop - GAP - maxH;
+  }
+
+  panel.style.top      = Math.max(TOP_GUARD, top) + 'px';
+  panel.style.left     = left + 'px';
+  panel.style.width    = panelW + 'px';
+  panel.style.maxHeight = maxH + 'px';
 }
 
 function toggleInsertPicker(kind, sectionKey){
@@ -2124,11 +2143,12 @@ function _onSelectionChange(){
   }
 
   // 커서가 이동할 때마다 TOC 활성 탭 즉시 갱신 + presence 업데이트 (3초 throttle)
+  // scrollToSection은 호출하지 않는다 — 본문 클릭 시 화면이 튀는 원인이 됨.
+  // TOC 클릭처럼 명시적인 이동 요청에서만 스크롤한다.
   const secKey = editorEl.id ? editorEl.id.replace('sec-content-input-', '') : null;
   if(secKey && secKey !== state.currentSectionKey){
     state.currentSectionKey = secKey;
     setActiveTocItem(secKey);
-    scrollToSection(secKey, true);
   }
   if(secKey && (secKey !== _presenceLastKey || Date.now() - _presenceLastAt > 3000)){
     _presenceLastKey = secKey; _presenceLastAt = Date.now();
