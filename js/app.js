@@ -3888,6 +3888,8 @@ function renderRefManager(project){
         </div>
         <textarea class="ref-text-input" data-ref-id="${r.id}" data-field="text" placeholder="전체 참고문헌 텍스트">${escapeHtml(r.text||'')}</textarea>
         <input type="text" class="ref-doi-input" data-ref-id="${r.id}" data-field="doi" value="${escapeHtml(r.doi||'')}" placeholder="DOI 또는 링크 (선택)" />
+        <label class="fig-field-label">메모</label>
+        <textarea class="ref-memo-input" data-ref-id="${r.id}" data-field="memo" placeholder="이 논문에 대한 간단한 메모를 남겨보세요 (핵심 내용, 인용 이유 등)">${escapeHtml(r.memo||'')}</textarea>
         <label class="fig-field-label fig-field-label-note">팀 댓글</label>
         ${renderItemThreadHtml('reference', r.id)}
       </div>
@@ -3906,7 +3908,7 @@ function renderRefManager(project){
     document.getElementById('ref-new-text').focus();
   }
 
-  pane.querySelectorAll('.ref-text-input, .ref-doi-input').forEach(el => {
+  pane.querySelectorAll('.ref-text-input, .ref-doi-input, .ref-memo-input').forEach(el => {
     el.addEventListener('input', (e) => {
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
