@@ -677,6 +677,18 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .author-directory-item .adi-name{ font-size:12.5px; font-weight:600; color:var(--ink); }
 .author-directory-item .adi-affil{ font-size:11px; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .author-directory-empty{ padding:16px; text-align:center; color:var(--ink-faint); font-size:12.5px; }
+.adi-edit-form{ align-items:flex-start; }
+.adi-edit-form input{ box-sizing:border-box; border:1px solid var(--line-strong); border-radius:var(--radius); padding:6px 9px; font-family:inherit; font-size:12.5px; }
+
+/* Keywords tag input */
+.kw-tag-wrapper{ border:1px solid var(--line-strong); border-radius:var(--radius); background:var(--paper-card); padding:10px 12px; min-height:54px; cursor:text; }
+.kw-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.kw-chip{ display:inline-flex; align-items:center; gap:5px; background:var(--brand-bg); border:1px solid var(--brand); border-radius:999px; padding:4px 8px 4px 12px; font-size:13px; font-family:'Times New Roman', '맑은 고딕', serif; color:var(--ink); }
+.kw-chip button{ border:none; background:transparent; color:var(--ink-faint); cursor:pointer; font-size:12px; line-height:1; padding:1px 2px; }
+.kw-chip button:hover{ color:var(--brick); }
+.kw-input{ border:none; outline:none; background:transparent; font-family:'Times New Roman', '맑은 고딕', serif; font-size:14px; color:var(--ink); width:100%; padding:0; }
+.kw-input::placeholder{ color:var(--ink-faint); }
+.kw-hint{ margin-top:8px; font-size:11.5px; color:var(--ink-faint); font-style:italic; }
 
 .custom-section-row{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
 .custom-section-row input{ flex:1; padding:8px 10px; border:1px solid var(--line-strong); border-radius:var(--radius); font-family:inherit; font-size:13.5px; }

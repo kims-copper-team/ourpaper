@@ -855,6 +855,66 @@ function referencesSectionInnerHtml(sec){
   `;
 }
 
+function initKeywordTagInput(sec, project){
+  const chipsEl = document.getElementById('kw-chips-' + sec.key);
+  const input   = document.getElementById('kw-input-'  + sec.key);
+  if(!chipsEl || !input) return;
+
+  function parseKws(raw){
+    if(!raw) return [];
+    const plain = looksLikeHtml(raw)
+      ? (() => { const t = document.createElement('div'); t.innerHTML = raw; return Array.from(t.childNodes).map(n => n.textContent||'').join('\n'); })()
+      : raw;
+    return plain.split(/[\n,;、，；]+/).map(s => s.trim()).filter(Boolean);
+  }
+
+  let tags = parseKws(project.content[sec.key] || '');
+
+  function renderChips(){
+    chipsEl.innerHTML = tags.map((t, i) =>
+      `<span class="kw-chip">${escapeHtml(t)}<button type="button" data-idx="${i}" tabindex="-1">✕</button></span>`
+    ).join('');
+    chipsEl.querySelectorAll('button[data-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tags.splice(parseInt(btn.dataset.idx), 1);
+        persist();
+        input.focus();
+      });
+    });
+  }
+
+  function persist(){
+    project.content[sec.key] = tags.join('; ');
+    scheduleSave(project);
+    refreshTocFilledState(sec.key, tags.length > 0);
+    const wcEl = document.getElementById('wc-display-' + sec.key);
+    if(wcEl){ wcEl.textContent = tags.length + '개 / 6개'; wcEl.classList.toggle('over', tags.length > 6); }
+    renderChips();
+  }
+
+  function commitInput(){
+    const val = input.value.trim().replace(/[,;]+$/, '').trim();
+    if(!val) return;
+    val.split(/[,;、，；]+/).map(s => s.trim()).filter(Boolean).forEach(t => {
+      if(!tags.includes(t)) tags.push(t);
+    });
+    input.value = '';
+    persist();
+  }
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter' || e.key === ','){ e.preventDefault(); commitInput(); }
+    else if(e.key === ' ' && input.value.trim()){ e.preventDefault(); commitInput(); }
+    else if(e.key === 'Backspace' && !input.value && tags.length){ tags.pop(); persist(); }
+  });
+  input.addEventListener('blur', () => { if(input.value.trim()) commitInput(); });
+
+  // Initial render (no save)
+  renderChips();
+  const wcEl = document.getElementById('wc-display-' + sec.key);
+  if(wcEl){ wcEl.textContent = tags.length + '개 / 6개'; wcEl.classList.toggle('over', tags.length > 6); }
+}
+
 // 섹션을 한 번에 하나씩 보여주던 방식 대신, 전체 섹션을 한 캔버스에 이어서
 // 렌더링해 스크롤만으로 원고를 죽 훑어볼 수 있게 한다. 각 섹션은 고유
 // id(sec.key 접미사)를 가진 자기만의 편집 영역·삽입 버튼·단어 수를 유지한다.
@@ -892,7 +952,13 @@ function renderManuscriptCanvas(project, isCustom){
       </div>
       ${isCustom ? `<input type="text" id="sec-guidance-input-${sec.key}" placeholder="이 섹션에 무엇을 써야 하는지 메모 (선택)" value="${escapeHtml(sec.guidance||'')}" style="width:100%;border:none;background:transparent;font-family:'Times New Roman', '맑은 고딕', serif;font-style:italic;font-size:13px;color:var(--ink-soft);margin:8px 0 16px;padding:0;" />`
         : (sec.guidance ? `<div class="editor-guidance">${escapeHtml(sec.guidance)}</div>` : '')}
-      <div class="editor-area ${isEmpty ? 'is-empty' : ''} ${isKeywordsSection(sec) ? 'compact' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="내용을 작성하세요.">${plainTextToEditableHtml(rawContent)}</div>
+      ${isKeywordsSection(sec) ? `
+      <div class="kw-tag-wrapper" id="kw-wrapper-${sec.key}">
+        <div class="kw-chips" id="kw-chips-${sec.key}"></div>
+        <input type="text" class="kw-input" id="kw-input-${sec.key}" placeholder="키워드를 입력하세요" autocomplete="off" />
+        <div class="kw-hint">키워드 입력 시 콤마(,) 또는 띄어쓰기로 키워드를 구분해주세요. (권장 4~6개)</div>
+      </div>
+      ` : `<div class="editor-area ${isEmpty ? 'is-empty' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="내용을 작성하세요.">${plainTextToEditableHtml(rawContent)}</div>`}
       <div class="editor-foot">
         <span class="word-count ${overLimit?'over':''}" id="wc-display-${sec.key}">${wc}단어${sec.limit?(' / '+sec.limit):''}</span>
         <span class="save-indicator" id="editor-save-indicator"></span>
@@ -909,6 +975,7 @@ function renderManuscriptCanvas(project, isCustom){
 
   secs.forEach(sec => {
     if(isReferencesSection(sec)) return;
+    if(isKeywordsSection(sec)){ initKeywordTagInput(sec, project); return; }
     const contentInput = document.getElementById('sec-content-input-' + sec.key);
     if(!contentInput) return;
 
@@ -1722,8 +1789,8 @@ function buildRefInsertItemsHtml(){
       <input type="checkbox" class="insert-ref-checkbox" value="${i}" onchange="updateRefInsertSubmit()" />
       <span class="insert-num">[${i+1}]</span>
       <span class="insert-text">
-        <div class="insert-primary">${escapeHtml(r.label || ('참고문헌 ' + (i+1)))}</div>
-        <div class="insert-secondary">${escapeHtml(r.text || '')}</div>
+        <div class="insert-primary">${escapeHtml((r.text || '').slice(0, 80) || ('참고문헌 ' + (i+1)))}</div>
+        <div class="insert-secondary">${r.doi ? escapeHtml(r.doi) : ''}</div>
       </span>
     </label>
   `).join('');
@@ -3798,7 +3865,6 @@ function renderRefManager(project){
 
   const addForm = refFormOpen ? `
     <div class="ref-add-form" id="ref-add-form">
-      <input type="text" id="ref-new-label" placeholder="짧은 표시 이름 (예: Kim et al. 2021)" />
       <textarea id="ref-new-text" placeholder="전체 참고문헌 텍스트를 붙여넣거나 직접 입력하세요 (예: H.J. Kim, et al., Microstructure evolution in Al-Mg-Si alloys, Acta Mater. 68 (2021) 112–120.)"></textarea>
       <input type="text" id="ref-new-doi" placeholder="DOI 또는 링크 (선택)" />
       <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -3813,8 +3879,7 @@ function renderRefManager(project){
       <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
       <div class="ref-num-badge">${i+1}</div>
       <div class="ref-body">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-          <input type="text" class="ref-label-input" data-ref-id="${r.id}" data-field="label" value="${escapeHtml(r.label||'')}" placeholder="표시 이름" />
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px;">
           <div class="fig-actions">
             <button title="위로" onclick="moveReference('${r.id}',-1)" ${i===0?'disabled style="opacity:.3;"':''}>↑</button>
             <button title="아래로" onclick="moveReference('${r.id}',1)" ${i===refs.length-1?'disabled style="opacity:.3;"':''}>↓</button>
@@ -3838,10 +3903,10 @@ function renderRefManager(project){
   `;
 
   if(refFormOpen){
-    document.getElementById('ref-new-label').focus();
+    document.getElementById('ref-new-text').focus();
   }
 
-  pane.querySelectorAll('.ref-label-input, .ref-text-input, .ref-doi-input').forEach(el => {
+  pane.querySelectorAll('.ref-text-input, .ref-doi-input').forEach(el => {
     el.addEventListener('input', (e) => {
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
@@ -3883,14 +3948,13 @@ function cancelAddReference(){
 }
 
 async function submitReference(){
-  const label = document.getElementById('ref-new-label').value.trim();
   const text = document.getElementById('ref-new-text').value.trim();
   const doi = document.getElementById('ref-new-doi').value.trim();
   if(!text){ showToast('참고문헌 전체 텍스트를 입력해주세요'); return; }
   state.references = state.references || [];
   state.references.push({
     id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-    label, text, doi, addedAt: Date.now()
+    text, doi, addedAt: Date.now()
   });
   refFormOpen = false;
   const project = await getProject(state.currentProjectId);
@@ -3970,6 +4034,8 @@ function scheduleRefSave(){
 /* ============== AUTHOR LEDGER (저자 관리) ============== */
 let authorFormOpen = false;
 let newAuthorAffiliations = [];
+let _editingDirectoryId = null;
+let _editDirAffils = [];
 
 // 소속이 여러 개인 저자를 지원한다. 예전 데이터는 단일 문자열 필드(affiliation)만
 // 가지고 있을 수 있어 배열(affiliations)이 없으면 그걸로 대체한다.
@@ -3997,16 +4063,42 @@ function renderAuthorManager(project){
   const authors = state.authors || [];
   const directory = state.authorDirectory || [];
 
-  const directoryHtml = directory.length ? directory.map(d => `
-    <div class="author-directory-item">
-      <div class="adi-info">
-        <div class="adi-name">${escapeHtml(d.name)}</div>
-        <div class="adi-affil">${escapeHtml(authorAffiliations(d).join('; '))}</div>
+  const directoryHtml = directory.length ? directory.map(d => {
+    if(d.id === _editingDirectoryId){
+      const affilChips = _editDirAffils.length
+        ? _editDirAffils.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeEditDirAffil(${i})">✕</button></span>`).join('')
+        : `<span class="affil-chip-empty">소속을 추가해주세요</span>`;
+      return `
+        <div class="author-directory-item adi-edit-form">
+          <div style="flex:1;min-width:0;">
+            <input type="text" id="edit-dir-name" value="${escapeHtml(d.name)}" placeholder="이름" style="width:100%;margin-bottom:6px;" />
+            <div class="affil-chip-list" id="edit-dir-affil-chips" style="margin-bottom:6px;">${affilChips}</div>
+            <div class="affil-add-row" style="margin-bottom:6px;">
+              <input type="text" id="edit-dir-affil-input" placeholder="소속 입력 후 추가" />
+              <button type="button" class="btn secondary small" onclick="addEditDirAffil()">＋ 소속</button>
+            </div>
+            <input type="text" id="edit-dir-email" value="${escapeHtml(d.email||'')}" placeholder="이메일 (선택)" style="width:100%;margin-bottom:6px;" />
+            <input type="text" id="edit-dir-orcid" value="${escapeHtml(d.orcid||'')}" placeholder="ORCID (선택)" style="width:100%;margin-bottom:8px;" />
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn secondary small" onclick="cancelEditDirectory()">취소</button>
+              <button class="btn small" onclick="saveDirectoryEntry('${d.id}')">저장</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="author-directory-item">
+        <div class="adi-info">
+          <div class="adi-name">${escapeHtml(d.name)}</div>
+          <div class="adi-affil">${escapeHtml(authorAffiliations(d).join('; '))}</div>
+        </div>
+        <button class="btn secondary small" onclick="addAuthorFromDirectory('${d.id}')">＋ 추가</button>
+        <button class="icon-btn" title="편집" onclick="editDirectoryEntry('${d.id}')">✏</button>
+        <button class="icon-btn" title="주소록에서 삭제" onclick="removeFromDirectory('${d.id}')">✕</button>
       </div>
-      <button class="btn secondary small" onclick="addAuthorFromDirectory('${d.id}')">＋ 추가</button>
-      <button class="icon-btn" title="주소록에서 삭제" onclick="removeFromDirectory('${d.id}')">✕</button>
-    </div>
-  `).join('') : `<div class="author-directory-empty">저장된 저자가 없어요. 아래에서 새로 추가하면 주소록에도 저장할 수 있어요.</div>`;
+    `;
+  }).join('') : `<div class="author-directory-empty">저장된 저자가 없어요. 아래에서 새로 추가하면 주소록에도 저장할 수 있어요.</div>`;
 
   const newAuthorAffilChips = newAuthorAffiliations.length
     ? newAuthorAffiliations.map((aff, i) => `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeNewAuthorAffiliation(${i})">✕</button></span>`).join('')
@@ -4214,6 +4306,60 @@ async function removeFromDirectory(directoryId){
     const project = await getProject(state.currentProjectId);
     if(project) renderWorkspace(project);
   }
+}
+
+function editDirectoryEntry(id){
+  const entry = (state.authorDirectory || []).find(d => d.id === id);
+  if(!entry) return;
+  _editingDirectoryId = id;
+  _editDirAffils = authorAffiliations(entry).slice();
+  getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+
+function cancelEditDirectory(){
+  _editingDirectoryId = null;
+  _editDirAffils = [];
+  getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+
+function addEditDirAffil(){
+  const input = document.getElementById('edit-dir-affil-input');
+  const val = input ? input.value.trim() : '';
+  if(!val) return;
+  _editDirAffils.push(val);
+  if(input) input.value = '';
+  const el = document.getElementById('edit-dir-affil-chips');
+  if(el) el.innerHTML = _editDirAffils.map((aff, i) =>
+    `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeEditDirAffil(${i})">✕</button></span>`
+  ).join('') || `<span class="affil-chip-empty">소속을 추가해주세요</span>`;
+}
+
+function removeEditDirAffil(i){
+  _editDirAffils.splice(i, 1);
+  const el = document.getElementById('edit-dir-affil-chips');
+  if(el) el.innerHTML = _editDirAffils.map((aff, j) =>
+    `<span class="affil-chip">${escapeHtml(aff)}<button type="button" onclick="removeEditDirAffil(${j})">✕</button></span>`
+  ).join('') || `<span class="affil-chip-empty">소속을 추가해주세요</span>`;
+}
+
+async function saveDirectoryEntry(id){
+  const entry = (state.authorDirectory || []).find(d => d.id === id);
+  if(!entry) return;
+  const affilInput = document.getElementById('edit-dir-affil-input');
+  if(affilInput && affilInput.value.trim()) _editDirAffils.push(affilInput.value.trim());
+  const name = (document.getElementById('edit-dir-name') || {}).value?.trim() || entry.name;
+  if(!name){ showToast('이름을 입력해주세요'); return; }
+  entry.name = name;
+  entry.affiliations = _editDirAffils.slice();
+  delete entry.affiliation;
+  entry.email = (document.getElementById('edit-dir-email') || {}).value?.trim() ?? entry.email;
+  entry.orcid = (document.getElementById('edit-dir-orcid') || {}).value?.trim() ?? entry.orcid;
+  const ok = await setAuthorDirectory(state.authorDirectory);
+  if(!ok) showToast('주소록 저장에 실패했어요');
+  _editingDirectoryId = null;
+  _editDirAffils = [];
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
 }
 
 async function submitNewAuthor(){
