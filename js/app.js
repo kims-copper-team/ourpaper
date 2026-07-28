@@ -4537,15 +4537,30 @@ function renderRefManager(project){
   ` : `<button class="btn secondary small" style="margin-bottom:16px;" onclick="showAddReferenceForm()">＋ 참고문헌 추가</button>`;
 
   const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+  const totalUncited = refs.filter((r, i) => !citedNums.has(i + 1)).length;
+  let uncitedRankCounter = 0;
 
   const cards = refs.map((r, i) => {
     const num = i + 1;
     const isCited = citedNums.has(num);
     const badge = isCited ? `[${num}]` : '—';
     const badgeStyle = isCited ? '' : 'opacity:0.35;font-size:12px;letter-spacing:0;';
+
+    let leftCol;
+    if(isCited){
+      leftCol = `<div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>`;
+    } else {
+      uncitedRankCounter++;
+      leftCol = `
+        <div class="ref-left-col">
+          <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
+          <input class="ref-pos-input" type="number" min="1" max="${totalUncited}" value="${uncitedRankCounter}" data-ref-id="${r.id}" title="미인용 항목 중 순서 (Enter로 이동)" />
+        </div>`;
+    }
+
     return `
     <div class="ref-card" draggable="true" data-ref-id="${r.id}">
-      <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
+      ${leftCol}
       <div class="ref-num-badge" style="${badgeStyle}">${badge}</div>
       <div class="ref-body">
         <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px;">
@@ -4580,6 +4595,16 @@ function renderRefManager(project){
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
       scheduleRefSave();
+    });
+  });
+
+  pane.querySelectorAll('.ref-pos-input').forEach(input => {
+    input.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        const rank = parseInt(input.value, 10);
+        if(!isNaN(rank)) _moveUncitedRefToPosition(input.dataset.refId, rank);
+      }
     });
   });
 
@@ -4675,6 +4700,35 @@ async function reorderReferences(srcId, targetId){
     changed ? setProject(project) : Promise.resolve()
   ]);
   renderWorkspace(project);
+}
+
+async function _moveUncitedRefToPosition(id, newRank){
+  const refs = state.references || [];
+  const project = state.openProject;
+  const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+
+  const citedRefs = [];
+  const uncitedRefs = [];
+  refs.forEach((r, i) => {
+    if(citedNums.has(i + 1)) citedRefs.push(r);
+    else uncitedRefs.push(r);
+  });
+
+  const srcIdx = uncitedRefs.findIndex(r => r.id === id);
+  if(srcIdx === -1) return;
+
+  const targetIdx = Math.max(0, Math.min(newRank - 1, uncitedRefs.length - 1));
+  if(srcIdx === targetIdx) return;
+
+  const [moved] = uncitedRefs.splice(srcIdx, 1);
+  uncitedRefs.splice(targetIdx, 0, moved);
+
+  state.references = [...citedRefs, ...uncitedRefs];
+  const ok = await setReferences(state.currentProjectId, state.references);
+  if(!ok) showToast('저장하지 못했어요');
+
+  const proj = await getProject(state.currentProjectId);
+  renderWorkspace(proj || state.openProject);
 }
 
 async function removeReference(id){
