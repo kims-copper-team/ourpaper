@@ -853,12 +853,23 @@ function renderWorkspace(project){
 
 function referencesSectionInnerHtml(sec){
   const refs = state.references || [];
-  const list = refs.length ? refs.map((r,i) => `
-    <p><span class="fig-label" style="margin-right:8px;">[${i+1}]</span>${escapeHtml(r.text || '(내용 없음)')}</p>
-  `).join('') : `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 등록한 참고문헌이 없습니다</div>`;
+  const project = state.openProject;
+  const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+  // 인용된 참고문헌만 순서대로 표시
+  const citedList = refs.reduce((acc, r, i) => {
+    if(citedNums.has(i+1)) acc.push({ ref: r, num: i+1 });
+    return acc;
+  }, []);
+  const list = citedList.length
+    ? citedList.map(({ ref: r, num }, ci) => `
+        <p><span class="fig-label" style="margin-right:8px;">[${ci+1}]</span>${escapeHtml(r.text || '(내용 없음)')}</p>
+      `).join('')
+    : `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">${
+        refs.length ? '본문에 인용된 참고문헌이 없습니다' : '아직 등록한 참고문헌이 없습니다'
+      }</div>`;
   return `
     <div class="editor-head"><h2>${escapeHtml(sec.label)}</h2></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">이 목록은 Ref Ledger에서 자동으로 생성돼요. 순서를 바꾸거나 항목을 추가·삭제하려면 Ref Ledger로 이동하세요.</div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">이 목록은 Ref Ledger에서 자동으로 생성돼요. 본문에서 인용된 참고문헌만 번호가 부여되며, 인용 순서에 따라 자동으로 정렬됩니다.</div>
     <button class="btn secondary small" style="margin-bottom:16px;" onclick="selectReferences()">Ref Ledger로 이동</button>
     <div style="font-family:'Times New Roman', '맑은 고딕', serif;font-size:15px;line-height:1.85;">${list}</div>
   `;
@@ -1040,6 +1051,8 @@ function renderManuscriptCanvas(project, isCustom){
       broadcastThrottled(contentInput.innerHTML);
       // 하이라이트 원문이 수정됐으면 자동 제거 (현재 이벤트 처리 후 실행)
       setTimeout(() => _autoRemoveModifiedHighlights(contentInput, sec.key, project), 0);
+      // 인용 토큰이 삭제돼 gap이 생겼으면 자동 재번호
+      setTimeout(() => _resyncRefTokensAfterBodyEdit(contentInput, sec.key, project), 200);
     });
 
     // 그림(contenteditable=false 블록)을 클릭하면 브라우저가 블록 전체를
@@ -1874,16 +1887,24 @@ function buildRefInsertItemsHtml(){
   if(refs.length === 0){
     return `<div class="insert-popover-empty">아직 등록한 참고문헌이 없어요.<br>Ref Ledger에서 먼저 추가해보세요.</div>`;
   }
-  const items = refs.map((r,i) => `
+  const project = state.openProject;
+  const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+  const items = refs.map((r,i) => {
+    const num = i + 1;
+    const isCited = citedNums.has(num);
+    const numLabel = isCited ? `[${num}]` : '[—]';
+    const numStyle = isCited ? '' : 'color:var(--ink-faint);';
+    return `
     <label class="insert-item insert-item-check">
       <input type="checkbox" class="insert-ref-checkbox" value="${i}" onchange="updateRefInsertSubmit()" />
-      <span class="insert-num">[${i+1}]</span>
+      <span class="insert-num" style="${numStyle}">${numLabel}</span>
       <span class="insert-text">
-        <div class="insert-primary">${escapeHtml((r.text || '').slice(0, 80) || ('참고문헌 ' + (i+1)))}</div>
+        <div class="insert-primary">${escapeHtml((r.text || '').slice(0, 80) || ('참고문헌 ' + num))}</div>
         <div class="insert-secondary">${r.doi ? escapeHtml(r.doi) : ''}</div>
       </span>
     </label>
-  `).join('');
+  `;
+  }).join('');
   return `
     <div class="insert-multi-bar">
       <span class="insert-multi-count" id="ref-insert-count">0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요</span>
@@ -2586,6 +2607,80 @@ function autoSortRefsByBodyOrder(project, refs){
     .filter(m => m.oldNum !== m.newNum);
   sorted.forEach((r, i) => { refs[i] = r; });
   return renumberRefCitationsInProject(project, mapping);
+}
+
+// 본문에 현재 인용 중인 참고문헌 번호(1-based)를 Set으로 반환
+function computeRefCitedNumbers(project){
+  const cited = new Set();
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec)) return;
+    const raw = project.content[sec.key] || '';
+    if(!raw) return;
+    const bracketRe = /\[\s*(\d[\d,\s\-–]*)\s*\]/g;
+    let m;
+    while((m = bracketRe.exec(raw))) expandRefNumbers(m[1]).forEach(n => cited.add(n));
+  });
+  return cited;
+}
+
+// 본문 편집 후 인용 번호에 gap이 생겼으면 자동으로 재번호 (커서 안전: span.textContent만 교체)
+async function _resyncRefTokensAfterBodyEdit(contentEl, sectionKey, project){
+  const refs = state.references;
+  if(!refs || !refs.length) return;
+  // 최신 DOM 상태로 project 업데이트
+  project.content[sectionKey] = contentEl.innerHTML;
+  const cited = computeRefCitedNumbers(project);
+  if(!cited.size) return;
+  const maxCited = Math.max(...cited);
+  // gap이 없으면 (예: cited={1,2,3}, maxCited=3, size=3) 재번호 불필요
+  if(maxCited <= refs.length && cited.size >= maxCited) return;
+  // 새 정렬 계산
+  const sorted = computeRefOrder(project, refs);
+  const oldIds = refs.map(r => r.id);
+  const newIds = sorted.map(r => r.id);
+  if(oldIds.join(',') === newIds.join(',')) return;
+  const newPosById = new Map(newIds.map((id,i) => [id, i+1]));
+  const mapObj = {};
+  oldIds.forEach((id,i) => {
+    const np = newPosById.get(id);
+    if(np !== undefined && np !== i+1) mapObj[i+1] = np;
+  });
+  // 현재 섹션 DOM 스팬 업데이트 (innerHTML 교체 없이 — 커서 위치 유지)
+  if(Object.keys(mapObj).length){
+    Array.from(contentEl.querySelectorAll('.body-ref-token')).forEach(sp => {
+      const inner = (sp.textContent || '').replace(/^\[|\]$/g, '');
+      const nums = expandRefNumbers(inner);
+      const remapped = nums.map(n => mapObj[n] !== undefined ? mapObj[n] : n);
+      const newText = '[' + compressRefNumbers(remapped) + ']';
+      if(newText !== sp.textContent) sp.textContent = newText;
+    });
+    project.content[sectionKey] = contentEl.innerHTML;
+  }
+  // 다른 섹션들 HTML 문자열 업데이트
+  const bracketRe = /(?:<span[^>]*class="[^"]*body-ref-token[^"]*"[^>]*>)?(\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\])(?:<\/span>)?/g;
+  getSections(project).forEach(sec => {
+    if(isReferencesSection(sec) || sec.key === sectionKey) return;
+    const original = project.content[sec.key] || '';
+    if(!original) return;
+    const text = original.replace(bracketRe, (whole, bracket) => {
+      const nums = expandRefNumbers(bracket.slice(1,-1));
+      if(!nums.length) return whole;
+      let touched = false;
+      const remapped = nums.map(n => { if(mapObj[n] !== undefined){ touched=true; return mapObj[n]; } return n; });
+      if(!touched) return whole;
+      return `<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(remapped)}]</span>`;
+    });
+    if(text !== original) project.content[sec.key] = text;
+  });
+  // refs 배열 재정렬
+  sorted.forEach((r,i) => { refs[i] = r; });
+  await Promise.all([setProject(project), setReferences(state.currentProjectId, refs)]);
+  // 본문 캔버스의 References 섹션 실시간 업데이트
+  const refSecEl = document.querySelector('.ms-section[data-section-key="references"]');
+  if(refSecEl){
+    const refSec = getSections(project).find(s => isReferencesSection(s));
+    if(refSec) refSecEl.innerHTML = referencesSectionInnerHtml(refSec);
+  }
 }
 
 function figTokenMatcher(n){
@@ -4425,15 +4520,20 @@ function renderRefManager(project){
     </div>
   ` : `<button class="btn secondary small" style="margin-bottom:16px;" onclick="showAddReferenceForm()">＋ 참고문헌 추가</button>`;
 
-  const cards = refs.map((r, i) => `
+  const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+
+  const cards = refs.map((r, i) => {
+    const num = i + 1;
+    const isCited = citedNums.has(num);
+    const badge = isCited ? `[${num}]` : '—';
+    const badgeStyle = isCited ? '' : 'opacity:0.35;font-size:12px;letter-spacing:0;';
+    return `
     <div class="ref-card" draggable="true" data-ref-id="${r.id}">
       <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
-      <div class="ref-num-badge">${i+1}</div>
+      <div class="ref-num-badge" style="${badgeStyle}">${badge}</div>
       <div class="ref-body">
         <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px;">
           <div class="fig-actions">
-            <button title="위로" onclick="moveReference('${r.id}',-1)" ${i===0?'disabled style="opacity:.3;"':''}>↑</button>
-            <button title="아래로" onclick="moveReference('${r.id}',1)" ${i===refs.length-1?'disabled style="opacity:.3;"':''}>↓</button>
             <button class="fig-delete" title="삭제" onclick="removeReference('${r.id}')">✕</button>
           </div>
         </div>
@@ -4445,11 +4545,11 @@ function renderRefManager(project){
         ${renderItemThreadHtml('reference', r.id)}
       </div>
     </div>
-  `).join('');
+  `;}).join('');
 
   pane.innerHTML = `
     <div class="editor-head"><h2>Ref Ledger</h2><span class="section-limit">${refs.length}개</span></div>
-    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">참고문헌을 등록하면 번호가 자동으로 매겨져요. 본문 섹션에서 "＋ 인용 삽입" 버튼을 누르면 커서 위치에 [번호] 형태로 바로 삽입되고, References 섹션에는 이 목록이 순서대로 자동 정리돼요. 카드를 끌어다 놓거나(⋮⋮) 화살표로 순서를 바꾸면, 본문에 이미 넣어둔 [번호] 표기도 새 순서에 맞게 자동으로 업데이트돼요.</div>
+    <div class="editor-guidance" style="border-left-color:var(--stamp-green);color:var(--stamp-green);">참고문헌을 등록하면 본문에 인용할 수 있어요. 본문 섹션에서 "＋ 인용 삽입" 버튼을 누르면 [번호] 형태로 삽입되며, <b>번호는 본문 첫 인용 순서에 따라 자동으로 부여됩니다.</b> 인용이 없는 참고문헌은 번호가 없어요 (—). 카드를 끌어다 놓아(⋮⋮) 미인용 항목의 순서를 정리할 수 있어요.</div>
 
     ${addForm}
     <div class="fig-list" id="ref-list">${cards || `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:20px 0;">아직 등록한 참고문헌이 없습니다</div>`}</div>
@@ -4532,19 +4632,14 @@ async function moveReference(id, dir){
   const idx = refs.findIndex(r => r.id === id);
   const target = idx + dir;
   if(idx < 0 || target < 0 || target >= refs.length) return;
-  const oldIds = refs.map(r => r.id);
   [refs[idx], refs[target]] = [refs[target], refs[idx]];
-  const newIds = refs.map(r => r.id);
-  const ok = await setReferences(state.currentProjectId, refs);
-  if(!ok) showToast('순서 저장에 실패했어요');
   const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberRefCitationsInProject(project, mapping);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 인용 번호를 새 순서에 맞게 업데이트했어요');
-  }
+  if(!project){ await setReferences(state.currentProjectId, refs); return; }
+  const changed = autoSortRefsByBodyOrder(project, refs);
+  await Promise.all([
+    setReferences(state.currentProjectId, refs),
+    changed ? setProject(project) : Promise.resolve()
+  ]);
   renderWorkspace(project);
 }
 
@@ -4553,29 +4648,53 @@ async function reorderReferences(srcId, targetId){
   const srcIdx = refs.findIndex(r => r.id === srcId);
   const targetIdx = refs.findIndex(r => r.id === targetId);
   if(srcIdx === -1 || targetIdx === -1 || srcIdx === targetIdx) return;
-  const oldIds = refs.map(r => r.id);
   const [moved] = refs.splice(srcIdx, 1);
   refs.splice(targetIdx, 0, moved);
-  const newIds = refs.map(r => r.id);
-  const ok = await setReferences(state.currentProjectId, refs);
-  if(!ok) showToast('순서 저장에 실패했어요');
   const project = await getProject(state.currentProjectId);
-  if(!project) return;
-  const mapping = buildOldNewMapping(oldIds, newIds);
-  const changed = renumberRefCitationsInProject(project, mapping);
-  if(changed){
-    await setProject(project);
-    showToast('본문의 인용 번호를 새 순서에 맞게 업데이트했어요');
-  }
+  if(!project){ await setReferences(state.currentProjectId, refs); return; }
+  // 인용 번호는 본문 등장 순서로 자동 결정 — 드래그 후 재정렬
+  const changed = autoSortRefsByBodyOrder(project, refs);
+  await Promise.all([
+    setReferences(state.currentProjectId, refs),
+    changed ? setProject(project) : Promise.resolve()
+  ]);
   renderWorkspace(project);
 }
 
 async function removeReference(id){
-  state.references = (state.references || []).filter(r => r.id !== id);
+  const refs = state.references || [];
+  const idx = refs.findIndex(r => r.id === id);
+  state.references = refs.filter(r => r.id !== id);
   const ok = await setReferences(state.currentProjectId, state.references);
   if(!ok) showToast('삭제 내용을 저장하지 못했어요');
   const project = await getProject(state.currentProjectId);
-  if(project) renderWorkspace(project);
+  if(!project){ renderWorkspace(state.openProject); return; }
+  // 삭제된 참고문헌의 인용 토큰을 본문에서 제거하고, 남은 번호를 재정렬
+  if(idx !== -1){
+    const removedNum = idx + 1;
+    let bodyChanged = false;
+    const bracketRe = /(?:<span[^>]*class="[^"]*body-ref-token[^"]*"[^>]*>)?(\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\])(?:<\/span>)?/g;
+    getSections(project).forEach(sec => {
+      if(isReferencesSection(sec)) return;
+      const original = project.content[sec.key] || '';
+      if(!original) return;
+      let touched = false;
+      const text = original.replace(bracketRe, (whole, bracket) => {
+        const nums = expandRefNumbers(bracket.slice(1,-1));
+        const remapped = nums.filter(n => n !== removedNum).map(n => n > removedNum ? n-1 : n);
+        if(remapped.length === nums.length && !nums.includes(removedNum)) return whole;
+        touched = true;
+        if(!remapped.length) return '';
+        return `<span class="body-ref-token" contenteditable="false">[${compressRefNumbers(remapped)}]</span>`;
+      });
+      if(touched){ project.content[sec.key] = text; bodyChanged = true; }
+    });
+    if(bodyChanged){
+      await setProject(project);
+      showToast('인용 번호를 새 순서에 맞게 업데이트했어요');
+    }
+  }
+  renderWorkspace(project);
 }
 
 function scheduleRefSave(){
@@ -5769,8 +5888,12 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       body += pHeading(`${numberedIndex}. ${cleanLabel}`);
     }
     if(isReferencesSection(s)){
-      if(references && references.length){
-        references.forEach((r,ri) => { body += pText(`[${ri+1}] ${r.text||''}`, { size:20, after:120 }); });
+      const exportCitedNums = computeRefCitedNumbers(project);
+      const exportCitedRefs = (references || []).filter((r,i) => exportCitedNums.has(i+1));
+      if(exportCitedRefs.length){
+        exportCitedRefs.forEach((r,ci) => { body += pText(`[${ci+1}] ${r.text||''}`, { size:20, after:120 }); });
+      } else if(references && references.length){
+        body += pText('(본문에 인용된 참고문헌이 없습니다)', { italic:true, size:20 });
       } else {
         body += pText('(등록된 참고문헌 없음)', { italic:true, size:20 });
       }
