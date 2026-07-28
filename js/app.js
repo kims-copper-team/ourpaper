@@ -1919,9 +1919,25 @@ function updateRefInsertSubmit(){
   const btn = document.getElementById('ref-insert-submit');
   const count = document.getElementById('ref-insert-count');
   if(btn) btn.disabled = checked.length === 0;
-  if(count) count.textContent = checked.length
-    ? `${checked.length}개 선택됨 → [${compressRefNumbers(Array.from(checked).map(el => parseInt(el.value,10)+1))}]`
-    : '0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요';
+  if(!count) return;
+  if(!checked.length){ count.textContent = '0개 선택됨 — 여러 개 고르면 [1-3]처럼 자동으로 묶어요'; return; }
+  const project = state.openProject;
+  const citedNums = project ? computeRefCitedNumbers(project) : new Set();
+  const citedSelected = [], uncitedCount = { n: 0 };
+  Array.from(checked).forEach(el => {
+    const num = parseInt(el.value, 10) + 1;
+    if(citedNums.has(num)) citedSelected.push(num);
+    else uncitedCount.n++;
+  });
+  let msg = `${checked.length}개 선택됨 → `;
+  if(citedSelected.length && uncitedCount.n){
+    msg += `[${compressRefNumbers(citedSelected)}] + 미인용 ${uncitedCount.n}개`;
+  } else if(citedSelected.length){
+    msg += `[${compressRefNumbers(citedSelected)}]`;
+  } else {
+    msg += `미인용 ${uncitedCount.n}개 (삽입 후 번호 자동 부여)`;
+  }
+  count.textContent = msg;
 }
 
 async function submitRefInsertPick(){
