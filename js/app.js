@@ -2082,20 +2082,22 @@ function openEquationPanel(spanEl){
   panel.innerHTML = buildEquationInsertPanel(preLatex, isDisplay, !!spanEl);
   document.body.appendChild(panel);
 
+  const EQ_W = Math.min(500, window.innerWidth - 16);
+  const EQ_MAX_H = Math.min(580, window.innerHeight - 70);
   if(spanEl){
     const rect = spanEl.getBoundingClientRect();
-    const W = window.innerWidth, panelW = 400, GAP = 8;
-    const left = Math.max(GAP, Math.min(W - panelW - GAP, rect.left));
+    const GAP = 8;
+    const left = Math.max(GAP, Math.min(window.innerWidth - EQ_W - GAP, rect.left));
     const spaceBelow = window.innerHeight - rect.bottom - GAP;
-    const top = spaceBelow >= 300 ? rect.bottom + GAP : Math.max(GAP, rect.top - Math.min(480, window.innerHeight - 60));
-    panel.style.cssText += `top:${top}px;left:${left}px;width:${panelW}px;max-height:480px;`;
+    const top = spaceBelow >= 300 ? rect.bottom + GAP : Math.max(GAP, rect.top - EQ_MAX_H);
+    panel.style.cssText += `top:${top}px;left:${left}px;width:${EQ_W}px;max-height:${EQ_MAX_H}px;`;
   } else {
     _positionPickerPanel(panel);
-    const W = window.innerWidth, panelW = 400, GAP = 8;
-    const left = Math.max(GAP, Math.min(W - panelW - GAP, parseInt(panel.style.left) || 0));
-    panel.style.width = panelW + 'px';
+    const GAP = 8;
+    const left = Math.max(GAP, Math.min(window.innerWidth - EQ_W - GAP, parseInt(panel.style.left) || 0));
+    panel.style.width = EQ_W + 'px';
     panel.style.left = left + 'px';
-    panel.style.maxHeight = '480px';
+    panel.style.maxHeight = EQ_MAX_H + 'px';
   }
 
   _initEquationPanel(panel);
@@ -2103,11 +2105,31 @@ function openEquationPanel(spanEl){
 }
 
 function buildEquationInsertPanel(preLatex, isDisplay, isEdit){
+  const TEMPLATES = [
+    { label:'에너지', latex:'E = mc^2' },
+    { label:'분수', latex:'\\frac{a}{b}' },
+    { label:'적분', latex:'\\int_a^b f(x)\\,dx', display:true },
+    { label:'합', latex:'\\sum_{i=1}^{n} x_i', display:true },
+    { label:'제곱근', latex:'\\sqrt{x}' },
+    { label:'극한', latex:'\\lim_{x \\to 0} f(x)' },
+    { label:'편미분', latex:'\\frac{\\partial f}{\\partial x}' },
+    { label:'log', latex:'\\log_{a} b' },
+    { label:'절댓값', latex:'\\left| x \\right|' },
+    { label:'행렬', latex:'\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', display:true },
+    { label:'cases', latex:'\\begin{cases} f(x) & x>0 \\\\ 0 & x \\leq 0 \\end{cases}', display:true },
+  ];
   const GL = [['α','\\alpha'],['β','\\beta'],['γ','\\gamma'],['δ','\\delta'],['ε','\\varepsilon'],['ζ','\\zeta'],['η','\\eta'],['θ','\\theta'],['ι','\\iota'],['κ','\\kappa'],['λ','\\lambda'],['μ','\\mu'],['ν','\\nu'],['ξ','\\xi'],['π','\\pi'],['ρ','\\rho'],['σ','\\sigma'],['τ','\\tau'],['φ','\\varphi'],['χ','\\chi'],['ψ','\\psi'],['ω','\\omega']];
   const GU = [['Γ','\\Gamma'],['Δ','\\Delta'],['Θ','\\Theta'],['Λ','\\Lambda'],['Ξ','\\Xi'],['Π','\\Pi'],['Σ','\\Sigma'],['Υ','\\Upsilon'],['Φ','\\Phi'],['Ψ','\\Psi'],['Ω','\\Omega']];
   const OP = [['∑','\\sum'],['∏','\\prod'],['∫','\\int'],['∮','\\oint'],['∂','\\partial'],['∇','\\nabla'],['∞','\\infty'],['±','\\pm'],['×','\\times'],['÷','\\div'],['·','\\cdot'],['≤','\\leq'],['≥','\\geq'],['≠','\\neq'],['≈','\\approx'],['∝','\\propto'],['∈','\\in'],['⊂','\\subset'],['∪','\\cup'],['∩','\\cap']];
-  const ST = [['a/b','\\frac{}{}'],['√','\\sqrt{}'],['xⁿ','{}^{}'],['xₙ','{}_{}'],['^n_m','{}^{}_{}'],['x̂','\\hat{}'],['x̄','\\bar{}'],['x⃗','\\vec{}'],['x̃','\\tilde{}'],['|a|','\\left|{}\\right|'],['‖a‖','\\left\\|{}\\right\\|'],['[ ]','\\begin{pmatrix} a & b \\\\\\\\ c & d \\end{pmatrix}'],['{cases}','\\begin{cases}  &  \\\\\\\\  &  \\end{cases}']];
+  const ST = [['a/b','\\frac{}{}'],['√','\\sqrt{}'],['xⁿ','{}^{}'],['xₙ','{}_{}'],['^n_m','{}^{}_{}'],['x̂','\\hat{}'],['x̄','\\bar{}'],['x⃗','\\vec{}'],['x̃','\\tilde{}'],['|a|','\\left|{}\\right|'],['‖a‖','\\left\\|{}\\right\\|'],['[ ]','\\begin{pmatrix} a & b \\\\\\\\ c & d \\end{pmatrix}'],['{…}','\\begin{cases}  &  \\\\\\\\  &  \\end{cases}']];
   const sb = ([sym, latex]) => `<button class="eq-sym-btn" data-latex="${escapeHtml(latex)}" onmousedown="event.preventDefault()" title="${escapeHtml(latex)}">${sym}</button>`;
+
+  const tmplHtml = TEMPLATES.map(t => `
+    <button class="eq-tmpl-btn" data-latex="${escapeHtml(t.latex)}" data-display="${!!t.display}" onmousedown="event.preventDefault()" title="${escapeHtml(t.latex)}">
+      <span class="eq-tmpl-rendered">${_renderKatex(t.latex, false)}</span>
+      <span class="eq-tmpl-label">${t.label}</span>
+    </button>`).join('');
+
   return `
     <div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>
     <div class="eq-panel-inner">
@@ -2115,15 +2137,26 @@ function buildEquationInsertPanel(preLatex, isDisplay, isEdit){
         <label class="eq-mode-label"><input type="radio" name="eq-mode" value="inline" ${!isDisplay?'checked':''}> 인라인</label>
         <label class="eq-mode-label"><input type="radio" name="eq-mode" value="display" ${isDisplay?'checked':''}> 독립 수식 (블록)</label>
       </div>
-      <textarea id="eq-latex-input" class="eq-latex-input" placeholder="LaTeX 입력 (예: E = mc^2, \\frac{a}{b})" spellcheck="false">${escapeHtml(preLatex)}</textarea>
-      <div class="eq-sym-groups">
-        <div class="eq-sym-section"><div class="eq-sym-group-label">소문자 그리스</div><div class="eq-sym-row">${GL.map(sb).join('')}</div></div>
-        <div class="eq-sym-section"><div class="eq-sym-group-label">대문자 그리스</div><div class="eq-sym-row">${GU.map(sb).join('')}</div></div>
-        <div class="eq-sym-section"><div class="eq-sym-group-label">연산자</div><div class="eq-sym-row">${OP.map(sb).join('')}</div></div>
-        <div class="eq-sym-section"><div class="eq-sym-group-label">구조</div><div class="eq-sym-row">${ST.map(sb).join('')}</div></div>
+      <div class="eq-tmpl-section">
+        <div class="eq-sym-group-label" style="margin-bottom:5px;">자주 쓰는 수식</div>
+        <div class="eq-tmpl-row">${tmplHtml}</div>
       </div>
-      <div class="eq-preview" id="eq-preview"><span class="eq-preview-hint">수식을 입력하면 여기에 미리보기가 표시됩니다</span></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+      <div class="eq-edit-row">
+        <div class="eq-input-col">
+          <textarea id="eq-latex-input" class="eq-latex-input" placeholder="LaTeX 입력&#10;예: E = mc^2&#10;   \\frac{a}{b}" spellcheck="false">${escapeHtml(preLatex)}</textarea>
+          <div class="eq-sym-groups">
+            <div class="eq-sym-section"><div class="eq-sym-group-label">소문자 그리스</div><div class="eq-sym-row">${GL.map(sb).join('')}</div></div>
+            <div class="eq-sym-section"><div class="eq-sym-group-label">대문자 그리스</div><div class="eq-sym-row">${GU.map(sb).join('')}</div></div>
+            <div class="eq-sym-section"><div class="eq-sym-group-label">연산자</div><div class="eq-sym-row">${OP.map(sb).join('')}</div></div>
+            <div class="eq-sym-section"><div class="eq-sym-group-label">구조</div><div class="eq-sym-row">${ST.map(sb).join('')}</div></div>
+          </div>
+        </div>
+        <div class="eq-preview-col">
+          <div class="eq-preview-label">미리보기</div>
+          <div class="eq-preview" id="eq-preview"><span class="eq-preview-hint">↑ 수식 입력</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
         <button class="btn small" id="eq-insert-btn" onmousedown="event.preventDefault()">${isEdit ? '수식 업데이트' : '삽입'}</button>
       </div>
     </div>`;
@@ -2138,13 +2171,19 @@ function _initEquationPanel(panel){
 
   const _updatePreview = () => {
     const latex = textarea.value.trim();
-    if(!latex){ preview.innerHTML = '<span class="eq-preview-hint">수식을 입력하면 여기에 미리보기가 표시됩니다</span>'; return; }
-    preview.innerHTML = _renderKatex(latex, _isDisplay());
+    if(!latex){ preview.innerHTML = '<span class="eq-preview-hint">↑ 수식 입력</span>'; return; }
+    const disp = _isDisplay();
+    const rendered = _renderKatex(latex, disp);
+    // 에러면 인라인도 디스플레이도 아닌 오류 메시지
+    const isErr = rendered.includes('color:#c33');
+    preview.innerHTML = rendered;
+    preview.classList.toggle('eq-preview-error', isErr);
   };
 
   textarea.addEventListener('input', _updatePreview);
   panel.querySelectorAll('input[name="eq-mode"]').forEach(r => r.addEventListener('change', _updatePreview));
 
+  // 심볼 버튼 클릭 → 커서 위치에 삽입
   panel.querySelectorAll('.eq-sym-btn').forEach(symBtn => {
     symBtn.addEventListener('click', () => {
       const ins = symBtn.dataset.latex;
@@ -2155,6 +2194,19 @@ function _initEquationPanel(panel){
       textarea.setSelectionRange(np, np);
       textarea.focus();
       _updatePreview();
+    });
+  });
+
+  // 템플릿 버튼 클릭 → textarea + 모드 자동 설정
+  panel.querySelectorAll('.eq-tmpl-btn').forEach(tb => {
+    tb.addEventListener('click', () => {
+      textarea.value = tb.dataset.latex;
+      const wantsDisplay = tb.dataset.display === 'true';
+      const radio = panel.querySelector(`input[name="eq-mode"][value="${wantsDisplay ? 'display' : 'inline'}"]`);
+      if(radio) radio.checked = true;
+      _updatePreview();
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     });
   });
 
