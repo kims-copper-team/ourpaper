@@ -1097,6 +1097,8 @@ function renderManuscriptCanvas(project, isCustom){
       if(figToken){ jumpToInlineBlock('figure', figToken); return; }
       const tableToken = e.target.closest('.body-table-token');
       if(tableToken){ jumpToInlineBlock('table', tableToken); return; }
+      const eqToken = e.target.closest('.body-eq-token');
+      if(eqToken){ openEquationPanel(eqToken); return; }
     });
 
     if(isCustom){
@@ -2054,6 +2056,172 @@ function closeInsertPicker(){
   setTimeout(_onSelectionChange, 50);
 }
 
+/* ---- 수식 삽입/편집 ---- */
+
+function openEquationPanel(spanEl){
+  closeInsertPicker();
+  state._editingEqSpan = spanEl || null;
+
+  if(!spanEl){
+    const sectionKey = _ctbKey();
+    if(sectionKey){
+      state.activeTextareaId = 'sec-content-input-' + sectionKey;
+      const el = document.getElementById(state.activeTextareaId);
+      const sel = window.getSelection();
+      state.savedInsertRange = (el && sel.rangeCount && el.contains(sel.anchorNode)) ? sel.getRangeAt(0).cloneRange() : null;
+    }
+  }
+
+  const preLatex = spanEl ? (spanEl.dataset.latex || '') : '';
+  const isDisplay = spanEl ? spanEl.dataset.display === 'true' : false;
+
+  const panel = document.createElement('div');
+  panel.id = 'inline-insert-picker';
+  panel.className = 'inline-insert-picker eq-picker-panel';
+  panel.dataset.kind = 'equation';
+  panel.innerHTML = buildEquationInsertPanel(preLatex, isDisplay, !!spanEl);
+  document.body.appendChild(panel);
+
+  if(spanEl){
+    const rect = spanEl.getBoundingClientRect();
+    const W = window.innerWidth, panelW = 400, GAP = 8;
+    const left = Math.max(GAP, Math.min(W - panelW - GAP, rect.left));
+    const spaceBelow = window.innerHeight - rect.bottom - GAP;
+    const top = spaceBelow >= 300 ? rect.bottom + GAP : Math.max(GAP, rect.top - Math.min(480, window.innerHeight - 60));
+    panel.style.cssText += `top:${top}px;left:${left}px;width:${panelW}px;max-height:480px;`;
+  } else {
+    _positionPickerPanel(panel);
+    const W = window.innerWidth, panelW = 400, GAP = 8;
+    const left = Math.max(GAP, Math.min(W - panelW - GAP, parseInt(panel.style.left) || 0));
+    panel.style.width = panelW + 'px';
+    panel.style.left = left + 'px';
+    panel.style.maxHeight = '480px';
+  }
+
+  _initEquationPanel(panel);
+  setTimeout(() => document.addEventListener('mousedown', _pickerOutsideClick), 0);
+}
+
+function buildEquationInsertPanel(preLatex, isDisplay, isEdit){
+  const GL = [['α','\\alpha'],['β','\\beta'],['γ','\\gamma'],['δ','\\delta'],['ε','\\varepsilon'],['ζ','\\zeta'],['η','\\eta'],['θ','\\theta'],['ι','\\iota'],['κ','\\kappa'],['λ','\\lambda'],['μ','\\mu'],['ν','\\nu'],['ξ','\\xi'],['π','\\pi'],['ρ','\\rho'],['σ','\\sigma'],['τ','\\tau'],['φ','\\varphi'],['χ','\\chi'],['ψ','\\psi'],['ω','\\omega']];
+  const GU = [['Γ','\\Gamma'],['Δ','\\Delta'],['Θ','\\Theta'],['Λ','\\Lambda'],['Ξ','\\Xi'],['Π','\\Pi'],['Σ','\\Sigma'],['Υ','\\Upsilon'],['Φ','\\Phi'],['Ψ','\\Psi'],['Ω','\\Omega']];
+  const OP = [['∑','\\sum'],['∏','\\prod'],['∫','\\int'],['∮','\\oint'],['∂','\\partial'],['∇','\\nabla'],['∞','\\infty'],['±','\\pm'],['×','\\times'],['÷','\\div'],['·','\\cdot'],['≤','\\leq'],['≥','\\geq'],['≠','\\neq'],['≈','\\approx'],['∝','\\propto'],['∈','\\in'],['⊂','\\subset'],['∪','\\cup'],['∩','\\cap']];
+  const ST = [['a/b','\\frac{}{}'],['√','\\sqrt{}'],['xⁿ','{}^{}'],['xₙ','{}_{}'],['^n_m','{}^{}_{}'],['x̂','\\hat{}'],['x̄','\\bar{}'],['x⃗','\\vec{}'],['x̃','\\tilde{}'],['|a|','\\left|{}\\right|'],['‖a‖','\\left\\|{}\\right\\|'],['[ ]','\\begin{pmatrix} a & b \\\\\\\\ c & d \\end{pmatrix}'],['{cases}','\\begin{cases}  &  \\\\\\\\  &  \\end{cases}']];
+  const sb = ([sym, latex]) => `<button class="eq-sym-btn" data-latex="${escapeHtml(latex)}" onmousedown="event.preventDefault()" title="${escapeHtml(latex)}">${sym}</button>`;
+  return `
+    <div class="picker-close-row"><button class="picker-close-btn" onmousedown="event.preventDefault()" onclick="closeInsertPicker()">✕ 닫기</button></div>
+    <div class="eq-panel-inner">
+      <div class="eq-mode-row">
+        <label class="eq-mode-label"><input type="radio" name="eq-mode" value="inline" ${!isDisplay?'checked':''}> 인라인</label>
+        <label class="eq-mode-label"><input type="radio" name="eq-mode" value="display" ${isDisplay?'checked':''}> 독립 수식 (블록)</label>
+      </div>
+      <textarea id="eq-latex-input" class="eq-latex-input" placeholder="LaTeX 입력 (예: E = mc^2, \\frac{a}{b})" spellcheck="false">${escapeHtml(preLatex)}</textarea>
+      <div class="eq-sym-groups">
+        <div class="eq-sym-section"><div class="eq-sym-group-label">소문자 그리스</div><div class="eq-sym-row">${GL.map(sb).join('')}</div></div>
+        <div class="eq-sym-section"><div class="eq-sym-group-label">대문자 그리스</div><div class="eq-sym-row">${GU.map(sb).join('')}</div></div>
+        <div class="eq-sym-section"><div class="eq-sym-group-label">연산자</div><div class="eq-sym-row">${OP.map(sb).join('')}</div></div>
+        <div class="eq-sym-section"><div class="eq-sym-group-label">구조</div><div class="eq-sym-row">${ST.map(sb).join('')}</div></div>
+      </div>
+      <div class="eq-preview" id="eq-preview"><span class="eq-preview-hint">수식을 입력하면 여기에 미리보기가 표시됩니다</span></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+        <button class="btn small" id="eq-insert-btn" onmousedown="event.preventDefault()">${isEdit ? '수식 업데이트' : '삽입'}</button>
+      </div>
+    </div>`;
+}
+
+function _initEquationPanel(panel){
+  const textarea = panel.querySelector('#eq-latex-input');
+  const preview  = panel.querySelector('#eq-preview');
+  const btn      = panel.querySelector('#eq-insert-btn');
+
+  const _isDisplay = () => (panel.querySelector('input[name="eq-mode"]:checked') || {}).value === 'display';
+
+  const _updatePreview = () => {
+    const latex = textarea.value.trim();
+    if(!latex){ preview.innerHTML = '<span class="eq-preview-hint">수식을 입력하면 여기에 미리보기가 표시됩니다</span>'; return; }
+    preview.innerHTML = _renderKatex(latex, _isDisplay());
+  };
+
+  textarea.addEventListener('input', _updatePreview);
+  panel.querySelectorAll('input[name="eq-mode"]').forEach(r => r.addEventListener('change', _updatePreview));
+
+  panel.querySelectorAll('.eq-sym-btn').forEach(symBtn => {
+    symBtn.addEventListener('click', () => {
+      const ins = symBtn.dataset.latex;
+      const s = textarea.selectionStart, e = textarea.selectionEnd;
+      textarea.value = textarea.value.slice(0, s) + ins + textarea.value.slice(e);
+      const bi = ins.indexOf('{}');
+      const np = bi >= 0 ? s + bi + 1 : s + ins.length;
+      textarea.setSelectionRange(np, np);
+      textarea.focus();
+      _updatePreview();
+    });
+  });
+
+  btn.addEventListener('click', () => {
+    const latex = textarea.value.trim();
+    if(!latex){ showToast('수식을 입력해주세요'); return; }
+    const disp = _isDisplay();
+    if(state._editingEqSpan) _updateEquationToken(state._editingEqSpan, latex, disp);
+    else insertEquationToken(latex, disp);
+    state._editingEqSpan = null;
+    closeInsertPicker();
+  });
+
+  if(textarea.value.trim()) _updatePreview();
+  textarea.focus();
+}
+
+function _renderKatex(latex, isDisplay){
+  if(typeof katex === 'undefined') return escapeHtml('[수식: ' + latex + ']');
+  try {
+    return katex.renderToString(latex, { displayMode: !!isDisplay, throwOnError: false });
+  } catch(e) {
+    return `<span style="color:#c33;font-size:12px;">${escapeHtml(e.message||'수식 오류')}</span>`;
+  }
+}
+
+function insertEquationToken(latex, isDisplay){
+  const el = document.getElementById(state.activeTextareaId);
+  if(!el){ showToast('삽입할 위치를 찾지 못했어요. 본문을 한 번 클릭한 뒤 다시 시도해주세요'); return; }
+  el.focus();
+  const sel = window.getSelection();
+  if(state.savedInsertRange && el.contains(state.savedInsertRange.startContainer)){
+    sel.removeAllRanges();
+    sel.addRange(state.savedInsertRange);
+  } else if(!sel.rangeCount || !el.contains(sel.anchorNode)){
+    const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+    sel.removeAllRanges(); sel.addRange(r);
+  }
+  state.savedInsertRange = null;
+
+  const span = document.createElement('span');
+  span.className = 'body-eq-token' + (isDisplay ? ' display' : '');
+  span.setAttribute('contenteditable', 'false');
+  span.dataset.latex = latex;
+  if(isDisplay) span.dataset.display = 'true';
+  span.innerHTML = _renderKatex(latex, isDisplay);
+
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  range.insertNode(span);
+
+  let after = span.nextSibling;
+  if(!after || after.nodeType !== Node.TEXT_NODE){ after = document.createTextNode(''); span.after(after); }
+  const nr = document.createRange(); nr.setStart(after, 0); nr.collapse(true);
+  sel.removeAllRanges(); sel.addRange(nr);
+  el.dispatchEvent(new Event('input', { bubbles:true }));
+}
+
+function _updateEquationToken(spanEl, latex, isDisplay){
+  spanEl.className = 'body-eq-token' + (isDisplay ? ' display' : '');
+  spanEl.dataset.latex = latex;
+  if(isDisplay) spanEl.dataset.display = 'true'; else delete spanEl.dataset.display;
+  spanEl.innerHTML = _renderKatex(latex, isDisplay);
+  const editorEl = spanEl.closest('.editor-area');
+  if(editorEl) editorEl.dispatchEvent(new Event('input', { bubbles:true }));
+}
+
 /* ---- 인용 편집 팝업 ([1-3] 클릭 → 체크박스로 편집) ---- */
 function openCiteEditPopup(spanEl){
   closeCiteEditPopup();
@@ -2134,11 +2302,14 @@ function initCursorToolbar(){
       <button class="ctb-btn" id="ctb-tbl">＋ 표</button>
       <span class="ctb-sep"></span>
       <button class="ctb-btn" id="ctb-ref">＋ 참고문헌</button>
+      <span class="ctb-sep"></span>
+      <button class="ctb-btn" id="ctb-eq">＋ 수식</button>
     `;
     tb.addEventListener('mousedown', e => e.preventDefault());
     tb.querySelector('#ctb-fig').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('figures', k); });
     tb.querySelector('#ctb-tbl').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('tables', k); });
     tb.querySelector('#ctb-ref').addEventListener('click', () => { const k = _ctbKey(); if(k) toggleInsertPicker('refs', k); });
+    tb.querySelector('#ctb-eq').addEventListener('click', () => { state._editingEqSpan = null; openEquationPanel(null); });
     document.body.appendChild(tb);
   }
   if(!_ctbListenerAdded){
@@ -5936,6 +6107,11 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
+    // 수식 토큰을 LaTeX 소스 텍스트로 교체 (인라인 흐름 유지, docx에는 KaTeX HTML 불필요)
+    tmp.querySelectorAll('.body-eq-token').forEach(sp => {
+      const latex = sp.dataset.latex || sp.textContent || '';
+      sp.replaceWith(document.createTextNode(latex ? `[${latex}]` : '[수식]'));
+    });
     let out = '';
     for(const node of Array.from(tmp.childNodes)) out += await processContentNode(node);
     return out || pText('(작성되지 않음)', { italic:true, size:20 });

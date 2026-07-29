@@ -739,6 +739,30 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .ref-add-form input, .ref-add-form textarea{ width:100%; box-sizing:border-box; border:1px solid var(--line-strong); border-radius:var(--radius); padding:8px 10px; font-family:inherit; font-size:13px; margin-bottom:8px; }
 .ref-add-form textarea{ font-family:'Times New Roman', '맑은 고딕', serif; min-height:60px; resize:vertical; }
 
+/* ---- 수식 토큰 (본문 인라인) ---- */
+.body-eq-token{ display:inline; cursor:pointer; border-radius:3px; padding:0 1px; transition:background .12s; }
+.body-eq-token:hover{ background:var(--stamp-green-bg); outline:1px solid var(--stamp-green); outline-offset:1px; }
+.body-eq-token.display{ display:block; text-align:center; margin:10px 0; }
+.body-eq-token.display:hover{ background:var(--stamp-green-bg); outline:1px solid var(--stamp-green); outline-offset:2px; }
+
+/* ---- 수식 삽입 패널 ---- */
+.eq-picker-panel{ overflow-y:auto; }
+.eq-panel-inner{ padding:0 14px 14px; display:flex; flex-direction:column; gap:8px; }
+.eq-mode-row{ display:flex; gap:16px; padding:4px 0 2px; }
+.eq-mode-label{ display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer; }
+.eq-mode-label input{ accent-color:var(--stamp-green); }
+.eq-latex-input{ width:100%; box-sizing:border-box; border:1px solid var(--line-strong); border-radius:var(--radius); padding:8px 10px; font-family:'Courier New', monospace; font-size:13px; color:var(--ink); resize:vertical; min-height:54px; background:var(--paper); }
+.eq-latex-input:focus{ outline:none; border-color:var(--ink-soft); }
+.eq-sym-groups{ display:flex; flex-direction:column; gap:4px; }
+.eq-sym-section{ }
+.eq-sym-group-label{ font-size:10.5px; color:var(--ink-faint); letter-spacing:.04em; text-transform:uppercase; margin-bottom:3px; }
+.eq-sym-row{ display:flex; flex-wrap:wrap; gap:3px; }
+.eq-sym-btn{ min-width:26px; height:26px; padding:0 5px; border:1px solid var(--line); border-radius:4px; background:var(--paper); color:var(--ink); font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:border-color .1s, background .1s; white-space:nowrap; }
+.eq-sym-btn:hover{ border-color:var(--ink-soft); background:var(--paper-alt,#f4f3ee); }
+.eq-preview{ min-height:40px; border:1px dashed var(--line); border-radius:var(--radius); padding:10px 12px; background:var(--paper); display:flex; align-items:center; justify-content:center; overflow-x:auto; }
+.eq-preview-hint{ font-size:12px; color:var(--ink-faint); }
+.eq-preview .katex-display{ margin:0; }
+
 .author-card{ display:flex; gap:12px; background:#fff; border:1.5px solid var(--line); border-radius:var(--radius); padding:14px; transition:border-color .12s, box-shadow .12s, opacity .12s; }
 .author-card.dragging{ opacity:0.35; }
 .author-card.drag-over{ border-color:var(--ink); box-shadow:0 0 0 2px var(--ink) inset; }
