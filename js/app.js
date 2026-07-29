@@ -6103,6 +6103,118 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     return out;
   }
 
+  // ── MathML → OMML 변환 (Word 수식 내보내기) ──────────────────────────────
+  const _NARY_OPS = new Set(['∑','∏','∫','∮','∬','∭','⋂','⋃','⨀','⨁','⨂']);
+  function _ommlEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function _mmlKids(n){ return Array.from(n.childNodes).map(_mmlToOmml).join(''); }
+  function _mmlRowKids(n){
+    const ch=Array.from(n.children); let res=''; let i=0;
+    const naryTags=new Set(['munderover','munder','mover','msubsup','msub','msup']);
+    while(i<ch.length){
+      const c=ch[i]; const tag=(c.localName||'').toLowerCase();
+      const baseT=((c.firstElementChild&&c.firstElementChild.textContent)||'').trim();
+      if(naryTags.has(tag)&&_NARY_OPS.has(baseT)){ res+=_mmlNary(c, ch.slice(i+1).map(_mmlToOmml).join('')); break; }
+      res+=_mmlToOmml(c); i++;
+    }
+    return res;
+  }
+  function _mmlNary(node, bodyXml){
+    const tag=(node.localName||'').toLowerCase(); const ch=Array.from(node.children);
+    const base=_ommlEsc((ch[0]&&ch[0].textContent||'').trim());
+    let subEl, supEl;
+    if(tag==='munderover'||tag==='msubsup'){ subEl=ch[1]; supEl=ch[2]; }
+    else if(tag==='munder'||tag==='msub'){ subEl=ch[1]; }
+    else if(tag==='mover'||tag==='msup'){ supEl=ch[1]; }
+    const isUnder=tag==='munderover'||tag==='munder'||tag==='mover';
+    const limLoc=isUnder?'undOvr':'subSup';
+    const subXml=subEl?`<m:sub>${_mmlToOmml(subEl)}</m:sub>`:'<m:sub/>';
+    const supXml=supEl?`<m:sup>${_mmlToOmml(supEl)}</m:sup>`:'<m:sup/>';
+    const hideProps=(!subEl?'<m:subHide m:val="1"/>':'')+(!supEl?'<m:supHide m:val="1"/>':'');
+    return `<m:nary><m:naryPr><m:chr m:val="${base}"/><m:limLoc m:val="${limLoc}"/>${hideProps}</m:naryPr>${subXml}${supXml}<m:e>${bodyXml}</m:e></m:nary>`;
+  }
+  function _mmlToOmml(node){
+    if(!node) return '';
+    if(node.nodeType===3){ const t=(node.textContent||'').replace(/[\r\n\t]+/g,' '); return t.trim()?`<m:r><m:t xml:space="preserve">${_ommlEsc(t)}</m:t></m:r>`:''; }
+    if(node.nodeType!==1) return '';
+    const tag=(node.localName||'').toLowerCase();
+    switch(tag){
+      case 'annotation': case 'annotation-xml': return '';
+      case 'math': return _mmlKids(node);
+      case 'semantics':{ const first=Array.from(node.children).find(c=>c.localName!=='annotation'&&c.localName!=='annotation-xml'); return first?_mmlToOmml(first):''; }
+      case 'mrow': return _mmlRowKids(node);
+      case 'mstyle': case 'mpadded': case 'merror': return _mmlKids(node);
+      case 'mphantom': return `<m:phant><m:phantPr/><m:e>${_mmlKids(node)}</m:e></m:phant>`;
+      case 'mi':{ const t=node.textContent||''; return `<m:r><m:rPr><m:sty m:val="${t.length===1?'i':'p'}"/></m:rPr><m:t>${_ommlEsc(t)}</m:t></m:r>`; }
+      case 'mn': return `<m:r><m:rPr><m:sty m:val="n"/></m:rPr><m:t>${_ommlEsc(node.textContent||'')}</m:t></m:r>`;
+      case 'mo': return `<m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>${_ommlEsc(node.textContent||'')}</m:t></m:r>`;
+      case 'mtext': return `<m:r><m:rPr><m:sty m:val="p"/><m:nor/></m:rPr><m:t>${_ommlEsc(node.textContent||'')}</m:t></m:r>`;
+      case 'mspace': return '';
+      case 'msup':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:sSup><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:sup>${ch[1]?_mmlToOmml(ch[1]):''}</m:sup></m:sSup>`; }
+      case 'msub':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:sSub><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:sub>${ch[1]?_mmlToOmml(ch[1]):''}</m:sub></m:sSub>`; }
+      case 'msubsup':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:sSubSup><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:sub>${ch[1]?_mmlToOmml(ch[1]):''}</m:sub><m:sup>${ch[2]?_mmlToOmml(ch[2]):''}</m:sup></m:sSubSup>`; }
+      case 'mfrac':{ const ch=Array.from(node.children); return `<m:f><m:num>${ch[0]?_mmlToOmml(ch[0]):''}</m:num><m:den>${ch[1]?_mmlToOmml(ch[1]):''}</m:den></m:f>`; }
+      case 'msqrt': return `<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e>${_mmlKids(node)}</m:e></m:rad>`;
+      case 'mroot':{ const ch=Array.from(node.children); return `<m:rad><m:deg>${ch[1]?_mmlToOmml(ch[1]):''}</m:deg><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e></m:rad>`; }
+      case 'munder':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:limLow><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:lim>${ch[1]?_mmlToOmml(ch[1]):''}</m:lim></m:limLow>`; }
+      case 'mover':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:limUpp><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:lim>${ch[1]?_mmlToOmml(ch[1]):''}</m:lim></m:limUpp>`; }
+      case 'munderover':{ const ch=Array.from(node.children); const bt=(ch[0]&&ch[0].textContent||'').trim(); if(_NARY_OPS.has(bt)) return _mmlNary(node,''); return `<m:limLow><m:e><m:limUpp><m:e>${ch[0]?_mmlToOmml(ch[0]):''}</m:e><m:lim>${ch[2]?_mmlToOmml(ch[2]):''}</m:lim></m:limUpp></m:e><m:lim>${ch[1]?_mmlToOmml(ch[1]):''}</m:lim></m:limLow>`; }
+      case 'mtable':{
+        const rows=Array.from(node.children).filter(c=>c.localName==='mtr'||c.localName==='mlabeledtr');
+        const colCount=Math.max(1,rows.reduce((m,r)=>Math.max(m,r.children.length),0));
+        const rowsXml=rows.map(r=>`<m:mr>${Array.from(r.children).filter(c=>c.localName==='mtd').map(c=>`<m:e>${_mmlKids(c)}</m:e>`).join('')}</m:mr>`).join('');
+        return `<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="${colCount}"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>${rowsXml}</m:m>`;
+      }
+      case 'mfenced':{
+        const open=_ommlEsc(node.getAttribute('open')||'('), close=_ommlEsc(node.getAttribute('close')||')');
+        const sep=_ommlEsc((node.getAttribute('separators')||',')[0]||',');
+        const kids=Array.from(node.children);
+        return `<m:d><m:dPr><m:begChr m:val="${open}"/><m:endChr m:val="${close}"/><m:sepChr m:val="${sep}"/></m:dPr>${kids.map(c=>`<m:e>${_mmlToOmml(c)}</m:e>`).join('')||'<m:e/>'}</m:d>`;
+      }
+      default: return _mmlKids(node);
+    }
+  }
+  function latexToOmmlXml(latex, isDisplay){
+    if(typeof katex==='undefined') return null;
+    try{
+      const mmlHtml=katex.renderToString(latex,{output:'mathml',throwOnError:false});
+      const doc=(new DOMParser()).parseFromString(mmlHtml,'text/html');
+      const mathEl=doc.querySelector('math');
+      if(!mathEl) return null;
+      const inner=_mmlToOmml(mathEl);
+      return isDisplay?`<m:oMathPara><m:oMath>${inner}</m:oMath></m:oMathPara>`:`<m:oMath>${inner}</m:oMath>`;
+    }catch(e){ console.warn('OMML 변환 실패:',latex,e); return null; }
+  }
+  function _paragraphWithEquations(node){
+    const bodyRpr=`<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="ko-KR"/></w:rPr>`;
+    const tokens=node.querySelectorAll('.body-eq-token');
+    // 디스플레이 수식만 있는 단독 문단
+    const nonEqText=Array.from(node.childNodes).filter(n=>!(n.nodeType===1&&n.classList&&n.classList.contains('body-eq-token'))).map(n=>(n.textContent||'').trim()).join('');
+    if(tokens.length===1&&tokens[0].dataset.display==='true'&&!nonEqText){
+      const latex=tokens[0].dataset.latex||'';
+      const omml=latexToOmmlXml(latex,true);
+      if(omml) return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="200"/></w:pPr>${omml}</w:p>`;
+      return pText(`[${latex}]`,{size:20,align:'center',after:200});
+    }
+    // 인라인 수식과 텍스트가 섞인 문단
+    const pPr=`<w:pPr><w:spacing w:after="160" w:line="480" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>`;
+    let inner=pPr;
+    function walkMixed(n){
+      if(n.nodeType===3){ const t=n.textContent||''; if(t) inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape(t)}</w:t></w:r>`; return; }
+      if(n.nodeType!==1) return;
+      if(n.classList&&n.classList.contains('body-eq-token')){
+        const omml=latexToOmmlXml(n.dataset.latex||'',false);
+        if(omml){ inner+=omml; return; }
+        inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape('['+(n.dataset.latex||'')+']')}</w:t></w:r>`;
+        return;
+      }
+      if(n.localName==='br'){ inner+=`<w:r><w:br/></w:r>`; return; }
+      Array.from(n.childNodes).forEach(walkMixed);
+    }
+    Array.from(node.childNodes).forEach(walkMixed);
+    return `<w:p>${inner}</w:p>`;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   // 그림/표 삽입 시 커서 위치에 따라 브라우저가 .inline-figure/.inline-table를
   // 새 형제가 아니라 기존 <div> 문단 안쪽에 한 겹 더 감싸 넣는 경우가 있다(실제
   // 사용자 문서에서 확인됨). 최상위 자식만 보면 이 블록을 못 찾고 그냥 텍스트로
@@ -6140,6 +6252,9 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       for(const child of Array.from(node.childNodes)) out += await processContentNode(child);
       return out;
     }
+    if(node.nodeType === 1 && node.querySelector && node.querySelector('.body-eq-token')){
+      return _paragraphWithEquations(node);
+    }
     const text = node.textContent || '';
     // 한 DOM 노드 안에 실제 줄바꿈 문자가 여러 개 박혀있는 경우(예전 형식의
     // 붙여넣기 등)까지 대비: 그대로 pText 하나에 넘기면 내부적으로 <w:br/>로만
@@ -6159,11 +6274,6 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
-    // 수식 토큰을 LaTeX 소스 텍스트로 교체 (인라인 흐름 유지, docx에는 KaTeX HTML 불필요)
-    tmp.querySelectorAll('.body-eq-token').forEach(sp => {
-      const latex = sp.dataset.latex || sp.textContent || '';
-      sp.replaceWith(document.createTextNode(latex ? `[${latex}]` : '[수식]'));
-    });
     let out = '';
     for(const node of Array.from(tmp.childNodes)) out += await processContentNode(node);
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
@@ -6233,7 +6343,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   }
 
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
 <w:body>
 ${body}
 <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>
