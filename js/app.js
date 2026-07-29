@@ -6192,7 +6192,12 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   function latexToOmmlXml(latex, isDisplay){
     if(typeof katex==='undefined') return null;
     try{
-      const mmlHtml=katex.renderToString(latex,{output:'mathml',throwOnError:false});
+      // \begin{equation}...\end{equation} 같은 LaTeX 환경 래퍼 제거 — KaTeX mathml 모드에서
+      // 환경 래퍼를 그대로 넘기면 math 요소를 생성 못해 null이 반환된다.
+      let src=(latex||'').trim();
+      const envM=src.match(/^\\begin\{[^}]+\}([\s\S]*)\\end\{[^}]+\}$/);
+      if(envM) src=envM[1].trim();
+      const mmlHtml=katex.renderToString(src,{output:'mathml',displayMode:!!isDisplay,throwOnError:false});
       const doc=(new DOMParser()).parseFromString(mmlHtml,'text/html');
       const mathEl=doc.querySelector('math');
       if(!mathEl) return null;
@@ -6203,8 +6208,10 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   function _paragraphWithEquations(node){
     const bodyRpr=`<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="맑은 고딕"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="ko-KR"/></w:rPr>`;
     const tokens=node.querySelectorAll('.body-eq-token');
-    // 디스플레이 수식만 있는 단독 문단
-    const nonEqText=Array.from(node.childNodes).filter(n=>!(n.nodeType===1&&n.classList&&n.classList.contains('body-eq-token'))).map(n=>(n.textContent||'').trim()).join('');
+    // 수식 토큰을 제외한 나머지 텍스트만 추출 (직접 자식뿐 아니라 전체 서브트리에서 수식 제거 후 체크)
+    const cloneForText=node.cloneNode(true);
+    cloneForText.querySelectorAll('.body-eq-token').forEach(el=>el.remove());
+    const nonEqText=(cloneForText.textContent||'').trim();
     if(tokens.length===1&&tokens[0].dataset.display==='true'&&!nonEqText){
       const latex=tokens[0].dataset.latex||'';
       const omml=latexToOmmlXml(latex,true);
@@ -6218,7 +6225,8 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       if(n.nodeType===3){ const t=n.textContent||''; if(t) inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape(t)}</w:t></w:r>`; return; }
       if(n.nodeType!==1) return;
       if(n.classList&&n.classList.contains('body-eq-token')){
-        const omml=latexToOmmlXml(n.dataset.latex||'',false);
+        const isDisp=n.dataset.display==='true';
+        const omml=latexToOmmlXml(n.dataset.latex||'',isDisp);
         if(omml){ inner+=omml; return; }
         inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape('['+(n.dataset.latex||'')+']')}</w:t></w:r>`;
         return;
