@@ -6222,15 +6222,28 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     const pPr=`<w:pPr><w:spacing w:after="160" w:line="480" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>`;
     let inner=pPr;
     function walkMixed(n){
-      if(n.nodeType===3){ const t=n.textContent||''; if(t) inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape(t)}</w:t></w:r>`; return; }
+      if(n.nodeType===3){ const t=n.textContent||''; if(t.trim()) inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape(t)}</w:t></w:r>`; return; }
       if(n.nodeType!==1) return;
+      // aria-hidden 레이어는 KaTeX 시각 HTML — math 요소로 이미 변환하므로 건너뜀
+      if(n.getAttribute&&n.getAttribute('aria-hidden')==='true') return;
       if(n.classList&&n.classList.contains('body-eq-token')){
         const isDisp=n.dataset.display==='true';
         const omml=latexToOmmlXml(n.dataset.latex||'',isDisp);
         if(omml){ inner+=omml; return; }
+        // latexToOmmlXml 실패 시 내부 <math>에서 직접 변환 시도
+        const mathFallback=n.querySelector('math');
+        if(mathFallback){ const fi=_mmlToOmml(mathFallback); if(fi){ inner+= isDisp?`<m:oMathPara><m:oMath>${fi}</m:oMath></m:oMathPara>`:`<m:oMath>${fi}</m:oMath>`; return; } }
         inner+=`<w:r>${bodyRpr}<w:t xml:space="preserve">${xmlEscape('['+(n.dataset.latex||'')+']')}</w:t></w:r>`;
         return;
       }
+      // body-eq-token 없이 바로 삽입된 naked KaTeX span — <math>에서 직접 OMML 변환
+      if(n.classList&&(n.classList.contains('katex')||n.classList.contains('katex-display'))){
+        const mathEl=n.querySelector('math');
+        if(mathEl){ const ki=_mmlToOmml(mathEl); if(ki){ inner+=`<m:oMath>${ki}</m:oMath>`; return; } }
+        return; // <math> 없으면 통째로 건너뜀 (KaTeX HTML 텍스트 누출 방지)
+      }
+      // katex-mathml 자체는 위 katex 처리에서 이미 흡수됨 — 개별로 오면 건너뜀
+      if(n.classList&&n.classList.contains('katex-mathml')) return;
       if(n.localName==='br'){ inner+=`<w:r><w:br/></w:r>`; return; }
       Array.from(n.childNodes).forEach(walkMixed);
     }
@@ -6288,7 +6301,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       for(const child of Array.from(node.childNodes)) out += await processContentNode(child);
       return out;
     }
-    if(node.nodeType === 1 && node.querySelector && node.querySelector('.body-eq-token')){
+    if(node.nodeType === 1 && node.querySelector && (node.querySelector('.body-eq-token') || node.querySelector('.katex'))){
       return _paragraphWithEquations(node);
     }
     const text = node.textContent || '';
@@ -6314,7 +6327,7 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     // 전체를 하나의 혼합 문단으로 처리 — Chrome이 <div>를 생성하지 않은 상태 대응.
     const topNodes = Array.from(tmp.childNodes);
     const hasBlock = topNodes.some(n => n.nodeType === 1 && /^(div|p|h[1-6]|blockquote|ul|ol|li)$/i.test(n.localName||''));
-    if(!hasBlock && tmp.querySelector('.body-eq-token')){
+    if(!hasBlock && (tmp.querySelector('.body-eq-token') || tmp.querySelector('.katex'))){
       return _paragraphWithEquations(tmp) || pText('(작성되지 않음)', { italic:true, size:20 });
     }
     let out = '';
