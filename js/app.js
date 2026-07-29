@@ -4775,6 +4775,7 @@ function renderRefManager(project){
 
   const citedNums = project ? computeRefCitedNumbers(project) : new Set();
   const totalUncited = refs.filter((r, i) => !citedNums.has(i + 1)).length;
+  const citedCount = refs.length - totalUncited;
   let uncitedRankCounter = 0;
 
   const cards = refs.map((r, i) => {
@@ -4791,7 +4792,7 @@ function renderRefManager(project){
       leftCol = `
         <div class="ref-left-col">
           <div class="fig-drag-handle" title="끌어서 순서 변경">⋮⋮</div>
-          <input class="ref-pos-input" type="number" min="1" max="${totalUncited}" value="${uncitedRankCounter}" data-ref-id="${r.id}" title="미인용 항목 중 순서 (Enter로 이동)" />
+          <input class="ref-pos-input" type="number" min="${citedCount + 1}" max="${citedCount + totalUncited}" value="${citedCount + uncitedRankCounter}" data-ref-id="${r.id}" data-cited-count="${citedCount}" title="전체 목록 기준 순서 — 인용된 ${citedCount}개 다음(${citedCount + 1}~${citedCount + totalUncited}) 범위에서 이동 (Enter)" />
         </div>`;
     }
 
@@ -4839,8 +4840,9 @@ function renderRefManager(project){
     input.addEventListener('keydown', (e) => {
       if(e.key === 'Enter'){
         e.preventDefault();
-        const rank = parseInt(input.value, 10);
-        if(!isNaN(rank)) _moveUncitedRefToPosition(input.dataset.refId, rank);
+        const cc = parseInt(input.dataset.citedCount, 10) || 0;
+        const rank = parseInt(input.value, 10) - cc;
+        if(!isNaN(rank) && rank >= 1) _moveUncitedRefToPosition(input.dataset.refId, rank);
       }
     });
   });
