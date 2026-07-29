@@ -2574,6 +2574,18 @@ async function pickFigureInsert(figId){
     if(project){
       const num = figureNumberById(project, figures, f.id);
       let changed = syncEmbeddedFigureCaption(project, f.id, num, f.caption);
+      // project.content 업데이트 직후 라이브 DOM도 즉시 반영 — await 동안 Fig.? 가 보이는 문제 방지
+      const liveEl = document.getElementById(state.activeTextareaId);
+      if(liveEl){
+        const liveFig = liveEl.querySelector(`.inline-figure[data-fig-id="${f.id}"]`);
+        if(liveFig){
+          const liveCap = liveFig.querySelector('.inline-figure-caption');
+          if(liveCap) liveCap.innerHTML = `<b>Fig. ${num != null ? num : '?'}.</b> ${escapeHtml(f.caption || '(캡션 미작성)')}`;
+          // 수정된 DOM을 project.content에도 반영
+          const sk = state.activeTextareaId.replace('sec-content-input-', '');
+          if(sk) project.content[sk] = liveEl.innerHTML;
+        }
+      }
       if(resyncFigureNumbering(beforeOrder, project, figures)) changed = true;
       if(changed){
         await setProject(project);
