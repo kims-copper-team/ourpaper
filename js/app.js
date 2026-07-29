@@ -2567,21 +2567,23 @@ async function pickFigureInsert(figId){
   if(mode === 'embed'){
     const beforeOrder = project ? computeFigureOrder(project, figures) : [];
     const captionText = escapeHtml(f.caption || '(캡션 미작성)');
-    // 정확한 번호는 삽입된 위치를 봐야 알 수 있으니 일단 넣고 바로 계산해서 고쳐 쓴다.
-    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${figureSrc(f)}" alt=""><div class="inline-figure-caption"><b>Fig. ?.</b> ${captionText}</div></div><div><br></div>`;
+    // 임시 번호: 현재 embed된 그림 수 + 1 (삽입 위치를 모르므로 잠정값; resync로 정정됨)
+    // '?' 대신 잠정 번호를 써서 어떤 타이밍에도 '?' 가 DB에 저장되지 않게 한다.
+    const tentativeNum = project ? beforeOrder.filter(id => isFigureEmbedded(project, id)).length + 1 : 1;
+    const html = `<div class="inline-figure" contenteditable="false" data-fig-id="${f.id}"><img src="${figureSrc(f)}" alt=""><div class="inline-figure-caption"><b>Fig. ${tentativeNum}.</b> ${captionText}</div></div><div><br></div>`;
     insertContentAtCursor(html);
     closeInsertPicker();
     if(project){
       const num = figureNumberById(project, figures, f.id);
-      let changed = syncEmbeddedFigureCaption(project, f.id, num, f.caption);
-      // project.content 업데이트 직후 라이브 DOM도 즉시 반영 — await 동안 Fig.? 가 보이는 문제 방지
+      let changed = syncEmbeddedFigureCaption(project, f.id, num != null ? num : tentativeNum, f.caption);
+      // 라이브 DOM도 즉시 정정 — await setProject 동안 잘못된 번호가 보이지 않도록
       const liveEl = document.getElementById(state.activeTextareaId);
       if(liveEl){
         const liveFig = liveEl.querySelector(`.inline-figure[data-fig-id="${f.id}"]`);
         if(liveFig){
           const liveCap = liveFig.querySelector('.inline-figure-caption');
-          if(liveCap) liveCap.innerHTML = `<b>Fig. ${num != null ? num : '?'}.</b> ${escapeHtml(f.caption || '(캡션 미작성)')}`;
-          // 수정된 DOM을 project.content에도 반영
+          const finalNum = num != null ? num : tentativeNum;
+          if(liveCap) liveCap.innerHTML = `<b>Fig. ${finalNum}.</b> ${escapeHtml(f.caption || '(캡션 미작성)')}`;
           const sk = state.activeTextareaId.replace('sec-content-input-', '');
           if(sk) project.content[sk] = liveEl.innerHTML;
         }
