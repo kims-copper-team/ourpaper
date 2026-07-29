@@ -924,7 +924,6 @@ function initKeywordTagInput(sec, project){
 
   input.addEventListener('keydown', e => {
     if(e.key === 'Enter' || e.key === ','){ e.preventDefault(); commitInput(); }
-    else if(e.key === ' ' && input.value.trim()){ e.preventDefault(); commitInput(); }
     else if(e.key === 'Backspace' && !input.value && tags.length){ tags.pop(); persist(); }
   });
   input.addEventListener('blur', () => { if(input.value.trim()) commitInput(); });
@@ -976,7 +975,7 @@ function renderManuscriptCanvas(project, isCustom){
       <div class="kw-tag-wrapper" id="kw-wrapper-${sec.key}">
         <div class="kw-chips" id="kw-chips-${sec.key}"></div>
         <input type="text" class="kw-input" id="kw-input-${sec.key}" placeholder="키워드를 입력하세요" autocomplete="off" />
-        <div class="kw-hint">키워드 입력 시 콤마(,) 또는 띄어쓰기로 키워드를 구분해주세요. (권장 4~6개)</div>
+        <div class="kw-hint">키워드 입력 후 콤마(,) 또는 Enter로 추가하세요. (권장 4~6개)</div>
       </div>
       ` : `<div class="editor-area ${isEmpty ? 'is-empty' : ''}" id="sec-content-input-${sec.key}" contenteditable="true" data-placeholder="내용을 작성하세요.">${plainTextToEditableHtml(rawContent)}</div>`}
       <div class="editor-foot">
