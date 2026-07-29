@@ -6244,6 +6244,18 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
   // 사용자 문서에서 확인됨). 최상위 자식만 보면 이 블록을 못 찾고 그냥 텍스트로
   // 뭉개버려 그림이 통째로 빠지므로, 재귀적으로 내려가며 찾는다.
   async function processContentNode(node){
+    // node 자체가 body-eq-token span인 경우 — querySelector는 자기 자신을 못 찾으므로 별도 처리
+    if(node.nodeType === 1 && node.classList && node.classList.contains('body-eq-token')){
+      const isDisp = node.dataset.display === 'true';
+      const omml = latexToOmmlXml(node.dataset.latex || '', isDisp);
+      if(isDisp){
+        if(omml) return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="200"/></w:pPr>${omml}</w:p>`;
+        return pText(`[${node.dataset.latex||''}]`,{size:20,align:'center',after:200});
+      } else {
+        if(omml) return `<w:p><w:pPr><w:spacing w:after="160" w:line="480" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>${omml}</w:p>`;
+        return pText(`[${node.dataset.latex||''}]`,{size:20,align:'both',lineSpacing:480});
+      }
+    }
     if(node.nodeType === 1 && node.classList && node.classList.contains('inline-figure')){
       const img = node.querySelector('img');
       const captionEl = node.querySelector('.inline-figure-caption');
@@ -6298,8 +6310,15 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = raw;
+    // 최상위에 블록 요소(div/p 등) 없이 text + inline eq-token이 flat하게 섞인 경우,
+    // 전체를 하나의 혼합 문단으로 처리 — Chrome이 <div>를 생성하지 않은 상태 대응.
+    const topNodes = Array.from(tmp.childNodes);
+    const hasBlock = topNodes.some(n => n.nodeType === 1 && /^(div|p|h[1-6]|blockquote|ul|ol|li)$/i.test(n.localName||''));
+    if(!hasBlock && tmp.querySelector('.body-eq-token')){
+      return _paragraphWithEquations(tmp) || pText('(작성되지 않음)', { italic:true, size:20 });
+    }
     let out = '';
-    for(const node of Array.from(tmp.childNodes)) out += await processContentNode(node);
+    for(const node of topNodes) out += await processContentNode(node);
     return out || pText('(작성되지 않음)', { italic:true, size:20 });
   }
 
