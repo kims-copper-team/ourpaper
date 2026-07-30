@@ -4832,6 +4832,14 @@ function renderRefManager(project){
       const ref = (state.references || []).find(r => r.id === e.target.dataset.refId);
       if(ref) ref[e.target.dataset.field] = e.target.value;
       scheduleRefSave();
+      // 본문 References 섹션 실시간 업데이트 (text 필드 변경 시)
+      if(e.target.dataset.field === 'text'){
+        const refSecEl = document.querySelector('.ms-section[data-section-key="references"]');
+        if(refSecEl && state.openProject){
+          const refSec = getSections(state.openProject).find(s => isReferencesSection(s));
+          if(refSec) refSecEl.innerHTML = referencesSectionInnerHtml(refSec);
+        }
+      }
     });
   });
 
