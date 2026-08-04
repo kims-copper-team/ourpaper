@@ -6364,7 +6364,11 @@ async function buildDocxBlob(project, journalMeta, secs, figures, references, em
       const exportCitedNums = computeRefCitedNumbers(project);
       const exportCitedRefs = (references || []).filter((r,i) => exportCitedNums.has(i+1));
       if(exportCitedRefs.length){
-        exportCitedRefs.forEach((r,ci) => { body += pText(`[${ci+1}] ${r.text||''}`, { size:20, after:120 }); });
+        exportCitedRefs.forEach((r,ci) => {
+          const doi = (r.doi||'').trim();
+          const doiSuffix = doi ? `, ${doi}` : '';
+          body += pText(`[${ci+1}] ${r.text||''}${doiSuffix}`, { size:20, after:120 });
+        });
       } else if(references && references.length){
         body += pText('(본문에 인용된 참고문헌이 없습니다)', { italic:true, size:20 });
       } else {
