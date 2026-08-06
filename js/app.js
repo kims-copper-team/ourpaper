@@ -490,12 +490,21 @@ async function renderDashboard(){
       if(progress>=100){ statusClass='status-done'; statusLabel='완성'; }
       statusPill = `<span class="status-pill ${statusClass}">${statusLabel} · ${progress}%</span>`;
     }
+    const targetJournal = (p.submissionStatus||{}).targetJournal || '';
+    const submissionRow = submKey !== 'draft'
+      ? `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;">
+           <span style="font-size:10px;color:var(--ink-faint);">투고 현황</span>
+           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:${submStage.color}22;color:${submStage.color};border:1px solid ${submStage.color}44;">${submStage.label}</span>
+           ${targetJournal ? `<span style="font-size:10px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;" title="${escapeHtml(targetJournal)}">${escapeHtml(targetJournal)}</span>` : ''}
+         </div>`
+      : '';
     html += `<div class="index-card" style="--spine:${j.color}" onclick="openWorkspace('${p.id}')">
       <div class="card-no">NO. ${String(i+1).padStart(3,'0')}</div>
       <div class="card-title">${escapeHtml(p.title || '제목 없음')}</div>
       <div class="card-journal">${escapeHtml(j.name)}</div>
       <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <div class="card-foot">
+      ${submissionRow}
+      <div class="card-foot" style="margin-top:${submKey!=='draft'?'6px':''};">
         ${statusPill}
         <span class="card-date">${fmtDate(p.updatedAt)}</span>
       </div>
