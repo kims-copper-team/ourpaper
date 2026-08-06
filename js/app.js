@@ -130,11 +130,15 @@ async function getIndex(){
       .select('id,title,journal_id,custom_sections,content,references_list,updated_at')
       .order('updated_at', { ascending:false });
     if(!error){
-      const list = (data||[]).map(row => ({
-        id: row.id, title: row.title, journalId: row.journal_id,
-        updatedAt: new Date(row.updated_at).getTime(),
-        progress: computeProgressForRow(row)
-      }));
+      const list = (data||[]).map(row => {
+        const rawContent = row.content || {};
+        return {
+          id: row.id, title: row.title, journalId: row.journal_id,
+          updatedAt: new Date(row.updated_at).getTime(),
+          progress: computeProgressForRow(row),
+          submissionStatus: rawContent.__submissionStatus__ || null
+        };
+      });
       return { list, failed:false };
     }
     console.error(`프로젝트 목록 조회 실패 (시도 ${i+1}/3):`, error);
@@ -169,11 +173,15 @@ async function insertProject(p){
 }
 
 function mapProjectRow(data){
+  const raw = data.content || {};
+  const submissionStatus = raw.__submissionStatus__ || null;
+  const content = { ...raw };
+  delete content.__submissionStatus__;
   return {
     id: data.id, title: data.title, journalId: data.journal_id,
     customSections: data.journal_id === 'custom' ? (data.custom_sections || []) : undefined,
-    content: data.content || {}, editorFontSize: data.editor_font_size || undefined,
-    ownerId: data.owner_id,
+    content, editorFontSize: data.editor_font_size || undefined,
+    ownerId: data.owner_id, submissionStatus,
     createdAt: new Date(data.created_at).getTime(), updatedAt: new Date(data.updated_at).getTime()
   };
 }
@@ -191,10 +199,13 @@ async function getProject(id){
   return project;
 }
 async function setProject(p){
+  // submissionStatus는 별도 컬럼 없이 content JSONB 안에 __submissionStatus__ 키로 보관
+  const contentWithMeta = { ...(p.content || {}) };
+  if(p.submissionStatus) contentWithMeta.__submissionStatus__ = p.submissionStatus;
   const patch = {
     title: p.title, journal_id: p.journalId,
     custom_sections: p.journalId === 'custom' ? (p.customSections || []) : [],
-    content: p.content || {},
+    content: contentWithMeta,
     editor_font_size: p.editorFontSize || null,
     updated_at: new Date().toISOString()
   };
