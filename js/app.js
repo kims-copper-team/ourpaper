@@ -29,6 +29,30 @@ const JOURNALS = {
   }
 };
 
+/* ============== SUBMISSION STATUS ============== */
+const SUBMISSION_STAGES = [
+  { key:'draft',              label:'작성 중',        color:'#6b7280', desc:'논문 원고를 작성하는 단계입니다.' },
+  { key:'submitted',          label:'투고',           color:'#3b82f6', desc:'저널에 원고를 제출한 상태입니다.' },
+  { key:'desk_review',        label:'데스크 리뷰',   color:'#8b5cf6', desc:'편집장이 저널 범위와 형식 적합성을 검토 중입니다.' },
+  { key:'desk_rejected',      label:'Desk Reject',   color:'#ef4444', desc:'데스크 리뷰에서 거절됐습니다. 다른 저널을 고려해보세요.' },
+  { key:'under_review',       label:'심사 중',        color:'#f59e0b', desc:'심사위원이 독창성·방법론·논리성 등을 평가 중입니다.' },
+  { key:'major_revision',     label:'Major Revision', color:'#f97316', desc:'논리·데이터 보완이 필요합니다. 수정 후 재심사를 받습니다.' },
+  { key:'minor_revision',     label:'Minor Revision', color:'#eab308', desc:'간단한 문구 수정이나 추가 설명 정도만 요구하는 긍정적인 단계입니다.' },
+  { key:'rejected',           label:'Reject',         color:'#ef4444', desc:'게재가 거부됐습니다. 다른 저널을 찾아야 합니다.' },
+  { key:'revision_submitted', label:'수정본 제출',   color:'#3b82f6', desc:'수정본을 제출해 재심사를 기다리는 중입니다.' },
+  { key:'accepted',           label:'게재 승인',     color:'#10b981', desc:'모든 수정이 반영되어 편집장이 최종 게재를 승인했습니다.' },
+  { key:'proofreading',       label:'교정',           color:'#0ea5e9', desc:'출판사 편집본을 검토 중입니다. 내용 수정은 불가합니다.' },
+  { key:'online_first',       label:'Online First',  color:'#0ea5e9', desc:'DOI를 부여받아 온라인 선공개된 상태입니다.' },
+  { key:'published',          label:'최종 출판',     color:'#10b981', desc:'정식 권·호에 포함되어 출판이 완료됐습니다.' },
+];
+const STAGE_MAP = Object.fromEntries(SUBMISSION_STAGES.map(s => [s.key, s]));
+// 메인 선형 흐름 (분기 제외)
+const MAIN_FLOW = ['draft','submitted','desk_review','under_review','major_revision','minor_revision','revision_submitted','accepted','proofreading','online_first','published'];
+
+function getStage(project){
+  return STAGE_MAP[(project.submissionStatus||{}).stage || 'draft'] || STAGE_MAP.draft;
+}
+
 /* ============== STATE ============== */
 let state = {
   currentUser:null, authMode:'signin',
@@ -454,16 +478,25 @@ async function renderDashboard(){
   list.forEach((p, i) => {
     const j = JOURNALS[JOURNAL_ALIAS[p.journalId] || p.journalId] || JOURNALS.materials_standard;
     const progress = p.progress || 0;
-    let statusClass = 'status-none', statusLabel='시작 전';
-    if(progress>0 && progress<100){ statusClass='status-doing'; statusLabel='작성 중'; }
-    if(progress>=100){ statusClass='status-done'; statusLabel='완성'; }
+    const submStage = getStage(p);
+    const submKey = (p.submissionStatus||{}).stage || 'draft';
+    // 투고 단계가 draft를 넘었으면 투고 현황 표시, 아니면 작성 진행률 표시
+    let statusPill;
+    if(submKey !== 'draft'){
+      statusPill = `<span class="status-pill" style="background:${submStage.color}22;color:${submStage.color};border:1px solid ${submStage.color}44;">${submStage.label}</span>`;
+    } else {
+      let statusClass = 'status-none', statusLabel='시작 전';
+      if(progress>0 && progress<100){ statusClass='status-doing'; statusLabel='작성 중'; }
+      if(progress>=100){ statusClass='status-done'; statusLabel='완성'; }
+      statusPill = `<span class="status-pill ${statusClass}">${statusLabel} · ${progress}%</span>`;
+    }
     html += `<div class="index-card" style="--spine:${j.color}" onclick="openWorkspace('${p.id}')">
       <div class="card-no">NO. ${String(i+1).padStart(3,'0')}</div>
       <div class="card-title">${escapeHtml(p.title || '제목 없음')}</div>
       <div class="card-journal">${escapeHtml(j.name)}</div>
       <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
       <div class="card-foot">
-        <span class="status-pill ${statusClass}">${statusLabel} · ${progress}%</span>
+        ${statusPill}
         <span class="card-date">${fmtDate(p.updatedAt)}</span>
       </div>
     </div>`;
@@ -778,6 +811,7 @@ function renderWorkspace(project){
         <input class="ws-title-input" id="ws-title" value="${escapeHtml(project.title)}" />
         <div class="ws-meta">
           <span class="journal-badge" style="background:${j.color}22;color:${j.color}">${escapeHtml(j.name)}</span>
+          <span class="submission-stage-badge" onclick="selectStatus()" title="투고 현황 보기" style="cursor:pointer;font-size:11px;font-weight:600;padding:2px 8px;border-radius:8px;background:${currentStage.color}22;color:${currentStage.color};">${currentStage.label}</span>
           <span class="save-indicator" id="save-indicator">저장됨 · ${fmtDate(project.updatedAt)}</span>
           <span class="presence-bar" id="presence-bar"></span>
         </div>
@@ -796,6 +830,7 @@ function renderWorkspace(project){
 
     <div class="ws-body" style="margin-top:22px;">
       <div class="toc">
+        ${statusBtn}
         ${membersBtn}
         ${commentsBtn}
         ${authorsBtn}
@@ -826,7 +861,9 @@ function renderWorkspace(project){
     scheduleSave(project);
   });
 
-  if(state.currentSectionKey === '__members__'){
+  if(state.currentSectionKey === '__status__'){
+    renderStatusManager(project);
+  } else if(state.currentSectionKey === '__members__'){
     renderMembersManager(project);
   } else if(state.currentSectionKey === '__comments__'){
     renderCommentsManager(project);
@@ -5770,7 +5807,13 @@ function refreshTocOnly(project){
       <span class="toc-dot"></span>
     </button>`;
   }).join('');
-  toc.innerHTML = membersBtn + commentsBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
+  const currentStage2 = getStage(project);
+  const statusBtn2 = `<button class="toc-item toc-figures ${state.currentSectionKey==='__status__'?'active':''}" data-section-key="__status__" onclick="selectStatus()">
+      <span class="toc-num">◈</span>
+      <span style="flex:1;text-align:left;">투고 현황</span>
+      <span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:${currentStage2.color}22;color:${currentStage2.color};white-space:nowrap;">${currentStage2.label}</span>
+    </button>`;
+  toc.innerHTML = statusBtn2 + membersBtn + commentsBtn + authorsBtn + figuresBtn + tablesBtn + refsBtn + tocItems + (isCustom ? `<button class="toc-add-btn" onclick="addCustomSection()">+ 섹션 추가</button>` : '');
 }
 
 async function selectSection(key){
@@ -5816,6 +5859,169 @@ async function selectTables(){
   if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
   state.tablesLoadFailed = tblFailed;
   if(!tblFailed) state.tables = tables;
+  renderWorkspace(project);
+}
+
+async function selectStatus(){
+  state.currentSectionKey = '__status__';
+  updateMyPresenceSection('__status__');
+  const project = await getProject(state.currentProjectId);
+  if(!project){ showToast('일시적인 오류로 불러오지 못했어요. 다시 시도해주세요'); return; }
+  renderWorkspace(project);
+}
+
+function renderStatusManager(project){
+  const pane = document.getElementById('editor-pane');
+  const ss = project.submissionStatus || {};
+  const currentKey = ss.stage || 'draft';
+  const currentStage = STAGE_MAP[currentKey] || STAGE_MAP.draft;
+  const history = ss.history || [];
+  const notes = ss.notes || '';
+  const targetJournal = ss.targetJournal || '';
+
+  // 타임라인: 메인 흐름 + 분기 단계
+  const timelineSteps = [
+    { key:'draft',              label:'작성 중',        sub:'원고 작성' },
+    { key:'submitted',          label:'투고',           sub:'Submission' },
+    { key:'desk_review',        label:'데스크 리뷰',   sub:'Desk Review' },
+    { key:'desk_rejected',      label:'Desk Reject',   sub:'분기 · 재투고 필요', branch:true },
+    { key:'under_review',       label:'심사 중',        sub:'Peer Review' },
+    { key:'major_revision',     label:'Major Revision', sub:'대수정 요청', branch:true },
+    { key:'minor_revision',     label:'Minor Revision', sub:'소수정 요청', branch:true },
+    { key:'rejected',           label:'Reject',         sub:'분기 · 재투고 필요', branch:true },
+    { key:'revision_submitted', label:'수정본 제출',   sub:'Revision Submission' },
+    { key:'accepted',           label:'게재 승인',     sub:'Acceptance' },
+    { key:'proofreading',       label:'교정',           sub:'Galley Proof' },
+    { key:'online_first',       label:'Online First',  sub:'온라인 선공개' },
+    { key:'published',          label:'최종 출판',     sub:'Final Publication' },
+  ];
+
+  const isBadTerminal = (currentKey === 'desk_rejected' || currentKey === 'rejected');
+  const isGoodTerminal = (currentKey === 'published');
+
+  const timelineHtml = timelineSteps.map(step => {
+    const st = STAGE_MAP[step.key];
+    const isCurrent = step.key === currentKey;
+    const isDone = history.some(h => h.stage === step.key);
+    const histEntry = history.find(h => h.stage === step.key);
+    let dotStyle, rowStyle = '';
+    if(isCurrent){
+      dotStyle = `background:${st.color};box-shadow:0 0 0 3px ${st.color}33;`;
+      rowStyle = `background:${st.color}11;border-radius:8px;`;
+    } else if(isDone){
+      dotStyle = `background:${st.color};opacity:0.7;`;
+    } else {
+      dotStyle = `background:var(--line-strong);opacity:0.3;`;
+    }
+    const dateStr = histEntry ? `<span style="font-size:11px;color:var(--ink-faint);margin-left:8px;">${fmtDate(histEntry.at)}</span>` : '';
+    const noteStr = histEntry && histEntry.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;padding-left:28px;">${escapeHtml(histEntry.note)}</div>` : '';
+    return `
+      <div style="padding:6px 10px ${rowStyle ? ';'+rowStyle : ''}">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:12px;height:12px;border-radius:50%;flex-shrink:0;${dotStyle}"></div>
+          <div style="flex:1;">
+            <span style="font-size:14px;font-weight:${isCurrent?'700':'500'};color:${isCurrent?st.color:'var(--ink)'};font-family:'Times New Roman','맑은 고딕',serif;">${step.label}</span>
+            <span style="font-size:11px;color:var(--ink-faint);margin-left:6px;">${step.sub}</span>
+            ${dateStr}
+          </div>
+          ${isCurrent ? `<span style="font-size:10px;padding:2px 7px;border-radius:6px;background:${st.color};color:#fff;font-weight:600;">현재</span>` : ''}
+        </div>
+        ${noteStr}
+      </div>
+      ${step.branch ? '' : '<div style="width:1px;height:8px;background:var(--line-strong);opacity:0.25;margin-left:15px;"></div>'}
+    `;
+  }).join('');
+
+  // 단계 선택 드롭다운
+  const stageOptions = SUBMISSION_STAGES.map(s =>
+    `<option value="${s.key}" ${s.key===currentKey?'selected':''}>${s.label}</option>`
+  ).join('');
+
+  // 히스토리 로그
+  const historyHtml = history.length
+    ? [...history].reverse().map(h => {
+        const st = STAGE_MAP[h.stage] || {};
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line);">
+          <span style="font-size:11px;font-weight:600;padding:1px 7px;border-radius:6px;background:${(st.color||'#888')}22;color:${st.color||'#888'};white-space:nowrap;">${st.label||h.stage}</span>
+          <div style="flex:1;">
+            <div style="font-size:12px;color:var(--ink-soft);">${fmtDate(h.at)}</div>
+            ${h.note ? `<div style="font-size:13px;color:var(--ink);margin-top:2px;">${escapeHtml(h.note)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')
+    : `<div style="color:var(--ink-faint);font-size:13px;">아직 기록이 없습니다.</div>`;
+
+  pane.innerHTML = `
+    <div class="editor-head"><h2>투고 현황</h2>
+      <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:10px;background:${currentStage.color}22;color:${currentStage.color};">${currentStage.label}</span>
+    </div>
+    <div class="editor-guidance" style="border-left-color:${currentStage.color};color:var(--ink-soft);">${escapeHtml(currentStage.desc)}</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+      <div>
+        <label class="fig-field-label">투고 저널 (이 프로젝트에서 실제 제출할 저널)</label>
+        <input type="text" id="status-journal" value="${escapeHtml(targetJournal)}" placeholder="예: Acta Materialia" style="width:100%;box-sizing:border-box;" />
+      </div>
+      <div>
+        <label class="fig-field-label">현재 단계 변경</label>
+        <div style="display:flex;gap:8px;">
+          <select id="status-stage-select" style="flex:1;">${stageOptions}</select>
+          <button class="btn small" onclick="applyStatusStageChange()">적용</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <label class="fig-field-label">단계 변경 메모 (선택 — 날짜, 심사 의견 요약 등)</label>
+      <input type="text" id="status-note-input" placeholder="예: Major revision 요청, 재심사 마감 2026.09.01" style="width:100%;box-sizing:border-box;" />
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px;">
+      <div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--ink);">투고 프로세스</div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;background:var(--bg-card);">${timelineHtml}</div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--ink);">변경 기록</div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg-card);max-height:440px;overflow-y:auto;">${historyHtml}</div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <label class="fig-field-label">전체 메모</label>
+      <textarea id="status-notes-area" style="width:100%;box-sizing:border-box;min-height:80px;resize:vertical;" placeholder="심사 진행 상황, 리뷰어 코멘트 요약, 수정 사항 등 자유롭게 메모하세요">${escapeHtml(notes)}</textarea>
+    </div>
+  `;
+
+  document.getElementById('status-journal').addEventListener('input', e => {
+    if(!project.submissionStatus) project.submissionStatus = {};
+    project.submissionStatus.targetJournal = e.target.value;
+    scheduleSave(project);
+  });
+  document.getElementById('status-notes-area').addEventListener('input', e => {
+    if(!project.submissionStatus) project.submissionStatus = {};
+    project.submissionStatus.notes = e.target.value;
+    scheduleSave(project);
+  });
+}
+
+async function applyStatusStageChange(){
+  const select = document.getElementById('status-stage-select');
+  const noteInput = document.getElementById('status-note-input');
+  if(!select) return;
+  const newStage = select.value;
+  const note = noteInput ? noteInput.value.trim() : '';
+  const project = state.openProject;
+  if(!project) return;
+  if(!project.submissionStatus) project.submissionStatus = {};
+  project.submissionStatus.stage = newStage;
+  project.submissionStatus.history = project.submissionStatus.history || [];
+  project.submissionStatus.history.push({ stage: newStage, at: Date.now(), note });
+  await scheduleSave(project);
+  // 저널 입력값도 함께 반영
+  const journalInput = document.getElementById('status-journal');
+  if(journalInput) project.submissionStatus.targetJournal = journalInput.value;
+  const notesArea = document.getElementById('status-notes-area');
+  if(notesArea) project.submissionStatus.notes = notesArea.value;
   renderWorkspace(project);
 }
 
