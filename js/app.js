@@ -762,6 +762,12 @@ function renderWorkspace(project){
   const memberCount = 1 + (state.members || []).length; // owner + invited participants
   const openCommentCount = (state.highlights || []).filter(h => !h.resolvedAt).length + (state.itemComments || []).filter(c => !c.resolvedAt).length;
 
+  const currentStage = getStage(project);
+  const statusBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__status__'?'active':''}" data-section-key="__status__" onclick="selectStatus()">
+      <span class="toc-num">◈</span>
+      <span style="flex:1;text-align:left;">투고 현황</span>
+      <span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:${currentStage.color}22;color:${currentStage.color};white-space:nowrap;">${currentStage.label}</span>
+    </button>`;
   const membersBtn = `<button class="toc-item toc-figures ${state.currentSectionKey==='__members__'?'active':''}" data-section-key="__members__" onclick="selectMembers()">
       <span class="toc-num">☺</span>
       <span style="flex:1;text-align:left;">팀원${state.membersLoadFailed ? ' ⚠' : ` (${memberCount})`}</span>
