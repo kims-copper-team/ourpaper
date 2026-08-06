@@ -466,7 +466,13 @@ async function renderDashboard(){
     <div id="dash-grid" class="grid-cards"><div style="grid-column:1/-1;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;font-size:12px;">불러오는 중…</div></div>`;
 
   const { list, failed } = await getIndex();
-  list.sort((a,b)=>b.updatedAt-a.updatedAt);
+  // 작성 중(draft)을 앞으로, 그 안에서는 최근 수정 순 / 나머지는 뒤로
+  list.sort((a, b) => {
+    const aDraft = ((a.submissionStatus||{}).stage||'draft') === 'draft' ? 0 : 1;
+    const bDraft = ((b.submissionStatus||{}).stage||'draft') === 'draft' ? 0 : 1;
+    if(aDraft !== bDraft) return aDraft - bDraft;
+    return b.updatedAt - a.updatedAt;
+  });
   const grid = document.getElementById('dash-grid');
 
   if(failed){
