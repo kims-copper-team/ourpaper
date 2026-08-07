@@ -118,6 +118,10 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
   display:flex; flex-direction:column;
 }
 .index-card:hover{ transform:translateY(-2px); box-shadow:0 2px 0 rgba(30,34,48,0.06), 0 14px 22px -12px rgba(30,34,48,0.32); }
+.index-card.drag-over{ outline:2px dashed var(--accent); outline-offset:3px; transform:none; }
+.card-drag-handle{ position:absolute; top:10px; right:10px; font-size:13px; color:var(--ink-faint); cursor:grab; padding:2px 4px; border-radius:4px; line-height:1; user-select:none; }
+.card-drag-handle:hover{ color:var(--ink-soft); background:var(--bg-hover); }
+.card-drag-handle:active{ cursor:grabbing; }
 @media (prefers-reduced-motion:reduce){ .index-card{ transition:none; } .index-card:hover{ transform:none; } }
 .card-no{ font-family:'Courier New', '맑은 고딕', monospace; font-size:10.5px; color:var(--ink-faint); letter-spacing:1px; }
 .card-title{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:18px; font-weight:600; margin:6px 0 4px; line-height:1.3; }

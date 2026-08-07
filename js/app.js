@@ -466,13 +466,6 @@ async function renderDashboard(){
     <div id="dash-grid" class="grid-cards"><div style="grid-column:1/-1;color:var(--ink-faint);font-family:'Courier New', '맑은 고딕', monospace;font-size:12px;">불러오는 중…</div></div>`;
 
   const { list, failed } = await getIndex();
-  // 작성 중(draft)을 앞으로, 그 안에서는 최근 수정 순 / 나머지는 뒤로
-  list.sort((a, b) => {
-    const aDraft = ((a.submissionStatus||{}).stage||'draft') === 'draft' ? 0 : 1;
-    const bDraft = ((b.submissionStatus||{}).stage||'draft') === 'draft' ? 0 : 1;
-    if(aDraft !== bDraft) return aDraft - bDraft;
-    return b.updatedAt - a.updatedAt;
-  });
   const grid = document.getElementById('dash-grid');
 
   if(failed){
@@ -491,13 +484,33 @@ async function renderDashboard(){
     return;
   }
 
-  let html = '';
-  list.forEach((p, i) => {
+  // 저장된 순서 적용 (없으면 최근 수정 순)
+  const userId = state.currentUser?.id || 'anon';
+  const orderKey = `dash_order_${userId}`;
+  const savedOrder = JSON.parse(localStorage.getItem(orderKey) || '[]');
+  list.sort((a, b) => {
+    const ai = savedOrder.indexOf(a.id);
+    const bi = savedOrder.indexOf(b.id);
+    if(ai === -1 && bi === -1) return b.updatedAt - a.updatedAt;
+    if(ai === -1) return 1;
+    if(bi === -1) return -1;
+    return ai - bi;
+  });
+
+  function saveDashOrder(){
+    const ids = Array.from(grid.querySelectorAll('.index-card[data-pid]')).map(el => el.dataset.pid);
+    localStorage.setItem(orderKey, JSON.stringify(ids));
+    // 카드 번호 갱신
+    grid.querySelectorAll('.index-card[data-pid] .card-no').forEach((el, i) => {
+      el.textContent = 'NO. ' + String(i+1).padStart(3,'0');
+    });
+  }
+
+  function buildCardHtml(p, i){
     const j = JOURNALS[JOURNAL_ALIAS[p.journalId] || p.journalId] || JOURNALS.materials_standard;
     const progress = p.progress || 0;
     const submStage = getStage(p);
     const submKey = (p.submissionStatus||{}).stage || 'draft';
-    // 투고 단계가 draft를 넘었으면 투고 현황 표시, 아니면 작성 진행률 표시
     let statusPill;
     if(submKey !== 'draft'){
       statusPill = `<span class="status-pill" style="background:${submStage.color}22;color:${submStage.color};border:1px solid ${submStage.color}44;">${submStage.label}</span>`;
@@ -513,9 +526,9 @@ async function renderDashboard(){
            <span style="font-size:10px;color:var(--ink-faint);">투고 현황</span>
            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:${submStage.color}22;color:${submStage.color};border:1px solid ${submStage.color}44;">${submStage.label}</span>
            ${targetJournal ? `<span style="font-size:10px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;" title="${escapeHtml(targetJournal)}">${escapeHtml(targetJournal)}</span>` : ''}
-         </div>`
-      : '';
-    html += `<div class="index-card" style="--spine:${j.color}" onclick="openWorkspace('${p.id}')">
+         </div>` : '';
+    return `<div class="index-card" draggable="true" data-pid="${p.id}" style="--spine:${j.color};position:relative;">
+      <div class="card-drag-handle" title="끌어서 순서 변경" onclick="event.stopPropagation()">⋮⋮</div>
       <div class="card-no">NO. ${String(i+1).padStart(3,'0')}</div>
       <div class="card-title">${escapeHtml(p.title || '제목 없음')}</div>
       <div class="card-journal">${escapeHtml(j.name)}</div>
@@ -526,9 +539,43 @@ async function renderDashboard(){
         <span class="card-date">${fmtDate(p.updatedAt)}</span>
       </div>
     </div>`;
-  });
+  }
+
+  let html = list.map((p, i) => buildCardHtml(p, i)).join('');
   html += `<button class="new-card" onclick="openNewProjectModal()"><div class="plus">+</div><span>새 프로젝트</span></button>`;
   grid.innerHTML = html;
+
+  // 드래그 앤 드롭 순서 변경
+  let dragSrcEl = null;
+  grid.querySelectorAll('.index-card[data-pid]').forEach(card => {
+    card.addEventListener('click', () => openWorkspace(card.dataset.pid));
+    card.addEventListener('dragstart', e => {
+      dragSrcEl = card;
+      card.style.opacity = '0.45';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.style.opacity = '';
+      grid.querySelectorAll('.index-card').forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      if(dragSrcEl && dragSrcEl !== card) card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      if(!dragSrcEl || dragSrcEl === card) return;
+      // 드롭 위치에 삽입
+      const cards = Array.from(grid.querySelectorAll('.index-card[data-pid]'));
+      const srcIdx = cards.indexOf(dragSrcEl);
+      const tgtIdx = cards.indexOf(card);
+      if(srcIdx < tgtIdx) card.after(dragSrcEl);
+      else card.before(dragSrcEl);
+      saveDashOrder();
+    });
+  });
 }
 
 /* ============== NEW PROJECT MODAL ============== */
