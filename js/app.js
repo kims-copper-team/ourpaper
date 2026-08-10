@@ -528,7 +528,10 @@ async function renderDashboard(){
            ${targetJournal ? `<span style="font-size:10px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;" title="${escapeHtml(targetJournal)}">${escapeHtml(targetJournal)}</span>` : ''}
          </div>` : '';
     return `<div class="index-card" draggable="true" data-pid="${p.id}" style="--spine:${j.color};position:relative;">
-      <div class="card-drag-handle" title="끌어서 순서 변경" onclick="event.stopPropagation()">⋮⋮</div>
+      <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;align-items:center;">
+        <button class="card-action-btn" title="프로젝트 복사" onclick="event.stopPropagation();duplicateProject('${p.id}')">⧉</button>
+        <div class="card-drag-handle" title="끌어서 순서 변경" onclick="event.stopPropagation()" style="position:static;">⋮⋮</div>
+      </div>
       <div class="card-no">NO. ${String(i+1).padStart(3,'0')}</div>
       <div class="card-title">${escapeHtml(p.title || '제목 없음')}</div>
       <div class="card-journal">${escapeHtml(j.name)}</div>
@@ -658,6 +661,52 @@ async function submitNewProject(){
 
   closeModal();
   openWorkspace(project.id);
+}
+
+async function duplicateProject(srcId){
+  showToast('복사 중…');
+  // 원본 프로젝트 + 참고문헌 + 저자 병렬 로드
+  const [srcProject, { references: srcRefs }, { authors: srcAuthors }] = await Promise.all([
+    getProject(srcId),
+    getReferences(srcId),
+    getProjectAuthors(srcId)
+  ]);
+  if(!srcProject){ showToast('원본 프로젝트를 불러오지 못했어요'); return; }
+
+  // content에서 __submissionStatus__ 제거 (새 프로젝트는 초기 상태로)
+  const newContent = { ...(srcProject.content || {}) };
+  delete newContent.__submissionStatus__;
+
+  const newProject = {
+    title: (srcProject.title || '제목 없음') + ' (복사본)',
+    journalId: srcProject.journalId,
+    customSections: srcProject.customSections ? [...srcProject.customSections] : undefined,
+    content: newContent
+  };
+
+  const { project } = await insertProject(newProject);
+  if(!project){ showToast('복사에 실패했어요. 다시 시도해주세요'); return; }
+
+  // 참고문헌 복사 (새 ID 부여)
+  if(srcRefs && srcRefs.length){
+    const newRefs = srcRefs.map(r => ({
+      ...r,
+      id: 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2,6)
+    }));
+    await setReferences(project.id, newRefs);
+  }
+
+  // 저자 복사 (새 ID 부여)
+  if(srcAuthors && srcAuthors.length){
+    const newAuthors = srcAuthors.map(a => ({
+      ...a,
+      id: 'author_' + Date.now() + '_' + Math.random().toString(36).slice(2,6)
+    }));
+    await setProjectAuthors(project.id, newAuthors);
+  }
+
+  showToast('복사 완료!');
+  renderDashboard();
 }
 
 /* ============== GUIDE PAGE ============== */
