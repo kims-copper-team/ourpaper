@@ -7342,8 +7342,8 @@ function _openPaperModal(paperId){
   const comps=paper?.compositions||[{element:'',amount:'',unit:'wt%'}];
   const modal=document.getElementById('modal-root');
   modal.innerHTML=`
-  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-    <div class="modal-box" style="max-width:600px;max-height:90vh;overflow-y:auto;">
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
       <div class="modal-head"><h3>${paper?'논문 수정':'논문 추가'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
         <div class="field-row" style="margin-bottom:16px;">
@@ -7370,7 +7370,7 @@ function _openPaperModal(paperId){
         <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="이 논문의 핵심 novelty는…">${escapeHtml(paper?.novelty||'')}</textarea></div>
         <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="고온 크리프 논의 시, 시효 처리 효과 분석 시…">${escapeHtml(paper?.cite_when||'')}</textarea></div>
       </div>
-      <div class="modal-foot">
+      <div class="modal-actions">
         <button class="btn secondary" onclick="closeModal()">취소</button>
         <button class="btn" onclick="saveLibraryPaperFromModal('${paperId||''}')">저장</button>
       </div>
@@ -7448,8 +7448,8 @@ function openDataPointsModal(paperId){
   if(!paper) return;
   const dps=paper.data_points||[];
   document.getElementById('modal-root').innerHTML=`
-  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-    <div class="modal-box" style="max-width:580px;max-height:85vh;overflow-y:auto;">
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:580px;max-height:85vh;overflow-y:auto;">
       <div class="modal-head"><h3>데이터 포인트 편집</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">각 처리 조건별로 전도도(%IACS) · 경도(HV) · 강도(MPa)를 입력하면 맵 차트에 표시됩니다.</p>
@@ -7463,7 +7463,7 @@ function openDataPointsModal(paperId){
         <div id="lm-dp-rows">${dps.map((dp,i)=>_libDpRow(dp,i)).join('')}${dps.length===0?_libDpRow({label:'',conductivity:'',hardness:'',strength:''},0):''}</div>
         <button class="btn secondary small" onclick="libAddDpRow()" style="margin-top:8px;">+ 포인트 추가</button>
       </div>
-      <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveDpFromModal('${paperId}')">저장</button></div>
+      <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveDpFromModal('${paperId}')">저장</button></div>
     </div>
   </div>`;
 }
@@ -7498,8 +7498,8 @@ function openManageGroupsModal(){ _renderGroupsModal(); }
 function _renderGroupsModal(){
   const GCOLS=['#6366f1','#3b82f6','#0ea5e9','#10b981','#f59e0b','#f97316','#ef4444','#8b5cf6','#ec4899','#6b7280'];
   document.getElementById('modal-root').innerHTML=`
-  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-    <div class="modal-box" style="max-width:420px;">
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h3>그룹 관리</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
         <div id="lm-group-list">${libState.groups.map(g=>`
@@ -7514,7 +7514,7 @@ function _renderGroupsModal(){
           <button class="btn small" onclick="libAddGroup()">추가</button>
         </div>
       </div>
-      <div class="modal-foot"><button class="btn" onclick="closeModal();_renderLibraryLayout()">완료</button></div>
+      <div class="modal-actions"><button class="btn" onclick="closeModal();_renderLibraryLayout()">완료</button></div>
     </div>
   </div>`;
 }
@@ -7538,8 +7538,8 @@ function openAssignGroupModal(paperId){
   const paper=libState.papers.find(p=>p.id===paperId);
   if(!paper) return;
   document.getElementById('modal-root').innerHTML=`
-  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-    <div class="modal-box" style="max-width:360px;">
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:360px;">
       <div class="modal-head"><h3>그룹 지정</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
         ${!libState.groups.length?`<div style="color:var(--ink-faint);font-size:13px;">그룹이 없어요. "그룹 관리"에서 먼저 만들어주세요.</div>`:
@@ -7549,7 +7549,7 @@ function openAssignGroupModal(paperId){
             <span style="font-size:13px;">${escapeHtml(g.name)}</span>
           </label>`).join('')}
       </div>
-      <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveAssignGroups('${paperId}')">저장</button></div>
+      <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveAssignGroups('${paperId}')">저장</button></div>
     </div>
   </div>`;
 }
