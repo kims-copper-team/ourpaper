@@ -961,10 +961,20 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .lib-comp-row{ display:flex; align-items:center; gap:5px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:4px 10px; font-size:13px; }
 .lib-comp-el{ font-weight:700; font-family:'Courier New',monospace; }
 .lib-comp-val{ color:var(--ink-soft); }
-.lib-comp-edit-row{ display:flex; gap:6px; align-items:center; margin-bottom:6px; }
-.lib-comp-el-input{ width:80px; padding:5px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; background:var(--paper-card); color:var(--ink); }
-.lib-comp-amt-input{ width:70px; padding:5px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; background:var(--paper-card); color:var(--ink); }
-.lib-comp-unit-input{ padding:5px 6px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; background:var(--paper-card); color:var(--ink); }
+.lib-comp-edit-row{ display:grid; grid-template-columns:1fr 1fr 28px; gap:6px; align-items:center; margin-bottom:6px; }
+.lib-comp-el-input{ padding:5px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; background:var(--paper-card); color:var(--ink); min-width:0; }
+.lib-comp-amt-input{ padding:5px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; background:var(--paper-card); color:var(--ink); min-width:0; }
+.lib-comp-row-base{ background:var(--brand-bg); border-color:var(--brand); }
+.lib-comp-row-base .lib-comp-el{ color:var(--brand); }
+
+/* Unit toggle */
+.lib-unit-toggle{ display:flex; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+.lib-unit-btn{ border:none; background:transparent; padding:4px 12px; font-size:12px; font-weight:500; color:var(--ink-soft); cursor:pointer; transition:all .15s; font-family:inherit; }
+.lib-unit-btn.active{ background:var(--brand); color:#0F1115; font-weight:700; }
+
+/* Base element display */
+.lib-base-display{ margin-top:10px; }
+.lib-base-row{ display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--brand-bg); border:1px solid var(--brand); border-radius:var(--radius); }
 .lib-dp-table{ width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
 .lib-dp-table th{ text-align:left; padding:5px 10px; background:var(--paper); border-bottom:1px solid var(--line); color:var(--ink-faint); font-size:11px; font-weight:600; }
 .lib-dp-table td{ padding:6px 10px; border-bottom:1px solid var(--line); color:var(--ink-soft); }

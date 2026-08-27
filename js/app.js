@@ -7199,7 +7199,9 @@ function renderLibraryDetail(paperId){
   const detailEl = document.getElementById('lib-detail');
   if(!detailEl) return;
   const paperGroups = (paper.groupIds||[]).map(gid=>libState.groups.find(g=>g.id===gid)).filter(Boolean);
-  const comps = paper.compositions||[];
+  const rawComps = paper.compositions;
+  const cd = _libGetCompData(paper);
+  const hasComps = cd.base || cd.others.length > 0;
   const dps = paper.data_points||[];
   const papersWithData = libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp.conductivity!=null));
 
@@ -7242,9 +7244,12 @@ function renderLibraryDetail(paperId){
       </div>
     </div>
 
-    ${comps.length?`<div class="lib-section">
-      <div class="lib-section-label">합금 조성</div>
-      <div class="lib-comp-table">${comps.map(c=>`<div class="lib-comp-row"><span class="lib-comp-el">${escapeHtml(c.element||'')}</span><span class="lib-comp-val">${c.amount!=null?c.amount:''} ${escapeHtml(c.unit||'wt%')}</span></div>`).join('')}</div>
+    ${hasComps?`<div class="lib-section">
+      <div class="lib-section-label">합금 조성 (${escapeHtml(cd.unit||'wt%')})</div>
+      <div class="lib-comp-table">
+        ${cd.others.map(c=>`<div class="lib-comp-row"><span class="lib-comp-el">${escapeHtml(c.element||'')}</span><span class="lib-comp-val">${c.amount!=null?c.amount:''} ${escapeHtml(cd.unit||'wt%')}</span></div>`).join('')}
+        ${cd.base?`<div class="lib-comp-row lib-comp-row-base"><span class="lib-comp-el">${escapeHtml(cd.base)}</span><span class="lib-comp-val">bal. ${cd.baseAmount!=null?cd.baseAmount:''} ${escapeHtml(cd.unit||'wt%')}</span></div>`:''}
+      </div>
     </div>`:''}
 
     ${paper.novelty?`<div class="lib-section"><div class="lib-section-label">Novelty / 핵심 기여</div><div class="lib-text-content">${escapeHtml(paper.novelty)}</div></div>`:''}
@@ -7252,17 +7257,17 @@ function renderLibraryDetail(paperId){
 
     <div class="lib-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div class="lib-section-label" style="margin:0;">데이터 포인트 (전도도 · 경도 · 강도)</div>
+        <div class="lib-section-label" style="margin:0;">데이터 포인트 (전기전도도 · 경도 · 강도)</div>
         <button class="btn secondary small" onclick="openDataPointsModal('${paperId}')">편집</button>
       </div>
-      ${dps.length?`<table class="lib-dp-table"><thead><tr><th>Label</th><th>전도도 (%IACS)</th><th>경도 (HV)</th><th>강도 (MPa)</th></tr></thead>
+      ${dps.length?`<table class="lib-dp-table"><thead><tr><th>Label</th><th>전기전도도 (%IACS)</th><th>경도 (HV)</th><th>강도 (MPa)</th></tr></thead>
       <tbody>${dps.map(dp=>`<tr><td>${escapeHtml(dp.label||'')}</td><td>${dp.conductivity!=null?dp.conductivity:'-'}</td><td>${dp.hardness!=null?dp.hardness:'-'}</td><td>${dp.strength!=null?dp.strength:'-'}</td></tr>`).join('')}</tbody></table>`
       :`<div style="font-size:12px;color:var(--ink-faint);">데이터 없음 — "편집"을 눌러 추가하세요</div>`}
     </div>
 
     ${papersWithData.length?`<div class="lib-section" style="border-bottom:none;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div class="lib-section-label" style="margin:0;">전도도 – 물성 맵 (전체 라이브러리)</div>
+        <div class="lib-section-label" style="margin:0;">전기전도도 – 물성 맵 (전체 라이브러리)</div>
         <div style="display:flex;gap:6px;">
           <button class="btn secondary small ${libState.chartYAxis==='hardness'?'active':''}" onclick="libState.chartYAxis='hardness';renderLibraryDetail('${paperId}')">경도 (HV)</button>
           <button class="btn secondary small ${libState.chartYAxis==='strength'?'active':''}" onclick="libState.chartYAxis='strength';renderLibraryDetail('${paperId}')">강도 (MPa)</button>
@@ -7320,7 +7325,7 @@ function _renderConductivityChart(papers, highlightId){
       ${grid}${xlabels}${ylabels}${legend}
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
       <line x1="${pad.left}" y1="${H-pad.bottom}" x2="${W-pad.right}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
-      <text x="${pad.left+(W-pad.left-pad.right)/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">전도도 (%IACS)</text>
+      <text x="${pad.left+(W-pad.left-pad.right)/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">전기전도도 (%IACS)</text>
       <text transform="rotate(-90)" x="${-(pad.top+(H-pad.top-pad.bottom)/2)}" y="13" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${yLabel}</text>
       ${circles}
     </svg>
@@ -7331,19 +7336,36 @@ function _libChartTip(el, yLabel){
   const tip=document.getElementById('lib-tip');
   if(!tip) return;
   tip.style.display='block';
-  tip.innerHTML=`<b>${el.dataset.title}</b>\n${el.dataset.label}\n전도도: ${el.dataset.x} %IACS\n${yLabel.split(' ')[0]}: ${el.dataset.y}`;
+  tip.innerHTML=`<b>${el.dataset.title}</b>\n${el.dataset.label}\n전기전도도: ${el.dataset.x} %IACS\n${yLabel.split(' ')[0]}: ${el.dataset.y}`;
 }
 function _libChartHide(){ const t=document.getElementById('lib-tip'); if(t) t.style.display='none'; }
 
 function openAddPaperModal(){ _openPaperModal(null); }
 function openEditPaperModal(id){ _openPaperModal(id); }
+const LIB_BASE_ELEMENTS = ['Al','Cu','Ni','Fe','Ti','Mg','Zn','Co','Ag','Au','Pt','Pb','Sn','Mo','W','Cr','Mn','V','Zr','Nb','Ta','Hf','Re','Ru','Ir','Pd','Rh'];
+
+function _libGetCompData(paper){
+  const c = paper?.compositions;
+  if(!c) return { base:'', unit:'wt%', others:[] };
+  if(Array.isArray(c)){
+    // backward-compat: old flat array
+    const baseEl = c.find(x=>x.isBase);
+    return {
+      base: baseEl?.element || '',
+      unit: c[0]?.unit || 'wt%',
+      others: c.filter(x=>!x.isBase).map(x=>({ element: x.element||'', amount: x.amount }))
+    };
+  }
+  return { base: c.base||'', unit: c.unit||'wt%', others: c.others||[] };
+}
+
 function _openPaperModal(paperId){
   const paper=paperId?libState.papers.find(p=>p.id===paperId):null;
-  const comps=paper?.compositions||[{element:'',amount:'',unit:'wt%'}];
+  const cd = _libGetCompData(paper);
   const modal=document.getElementById('modal-root');
   modal.innerHTML=`
   <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-    <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
+    <div class="modal" style="max-width:620px;max-height:90vh;overflow-y:auto;">
       <div class="modal-head"><h3>${paper?'논문 수정':'논문 추가'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
         <div class="field-row" style="margin-bottom:16px;">
@@ -7363,10 +7385,42 @@ function _openPaperModal(paperId){
           <div class="field-row"><label>합금계 태그 (쉼표 구분)</label><input type="text" id="lm-alloys" class="field-input" value="${escapeHtml((paper?.alloy_systems||[]).join(', '))}" placeholder="Al-Cu, Al-Mg-Si"></div>
           <div class="field-row"><label>중요도</label><select id="lm-imp" class="field-input">${[1,2,3,4,5].map(n=>`<option value="${n}" ${(paper?.importance||3)===n?'selected':''}>${'★'.repeat(n)}</option>`).join('')}</select></div>
         </div>
+
+        <!-- 합금 조성 -->
         <div class="field-row">
-          <label style="display:flex;align-items:center;justify-content:space-between;"><span>합금 조성</span><button class="btn secondary small" onclick="libModalAddComp()">+ 원소</button></label>
-          <div id="lm-comps">${comps.map((c,i)=>_libCompRow(c,i)).join('')}</div>
+          <label>합금 조성</label>
+          <!-- Base 원소 + 단위 선택 -->
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:12px;color:var(--ink-soft);">Base 원소</span>
+              <select id="lm-base-el" class="field-input" style="width:90px;padding:5px 8px;" onchange="_libUpdateBase()">
+                <option value="">선택</option>
+                ${LIB_BASE_ELEMENTS.map(el=>`<option value="${el}" ${cd.base===el?'selected':''}>${el}</option>`).join('')}
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:12px;color:var(--ink-soft);">단위</span>
+              <div class="lib-unit-toggle">
+                <button type="button" class="lib-unit-btn ${cd.unit!=='at%'?'active':''}" id="lm-unit-wt" onclick="_libSetUnit('wt%')">wt%</button>
+                <button type="button" class="lib-unit-btn ${cd.unit==='at%'?'active':''}" id="lm-unit-at" onclick="_libSetUnit('at%')">at%</button>
+              </div>
+            </div>
+          </div>
+          <!-- 컬럼 헤더 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 28px;gap:6px;margin-bottom:4px;padding:0 2px;">
+            <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">원소</span>
+            <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">함량</span>
+            <span></span>
+          </div>
+          <div id="lm-comps" data-unit="${cd.unit||'wt%'}">
+            ${cd.others.map((c,i)=>_libCompRow(c,i)).join('')}
+            ${cd.others.length===0?_libCompRow({element:'',amount:null},0):''}
+          </div>
+          <button class="btn secondary small" onclick="libModalAddComp()" style="margin-top:6px;">+ 원소 추가</button>
+          <!-- Base 자동 계산 표시 -->
+          <div id="lm-base-display" class="lib-base-display"></div>
         </div>
+
         <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="이 논문의 핵심 novelty는…">${escapeHtml(paper?.novelty||'')}</textarea></div>
         <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="고온 크리프 논의 시, 시효 처리 효과 분석 시…">${escapeHtml(paper?.cite_when||'')}</textarea></div>
       </div>
@@ -7376,17 +7430,46 @@ function _openPaperModal(paperId){
       </div>
     </div>
   </div>`;
+  // 초기 base 표시
+  setTimeout(_libUpdateBase, 0);
 }
 function _libCompRow(c,i){
   return `<div class="lib-comp-edit-row">
-    <input type="text" class="lib-comp-el-input" placeholder="원소 (Cu)" value="${escapeHtml(c.element||'')}">
-    <input type="number" class="lib-comp-amt-input" placeholder="량" step="0.01" value="${c.amount!=null?c.amount:''}">
-    <select class="lib-comp-unit-input"><option value="wt%" ${(c.unit||'wt%')==='wt%'?'selected':''}>wt%</option><option value="at%" ${c.unit==='at%'?'selected':''}>at%</option></select>
-    <button class="btn secondary small" onclick="this.closest('.lib-comp-edit-row').remove()" style="padding:4px 8px;">✕</button>
+    <input type="text" class="lib-comp-el-input" placeholder="예: Cu, Zr, Mg" value="${escapeHtml(c.element||'')}" oninput="_libUpdateBase()">
+    <input type="number" class="lib-comp-amt-input" placeholder="0.00" step="0.001" min="0" value="${c.amount!=null?c.amount:''}" oninput="_libUpdateBase()">
+    <button class="btn secondary small" onclick="this.closest('.lib-comp-edit-row').remove();_libUpdateBase()" style="padding:4px 6px;">✕</button>
   </div>`;
 }
 function libModalAddComp(){
-  document.getElementById('lm-comps')?.insertAdjacentHTML('beforeend',_libCompRow({element:'',amount:'',unit:'wt%'},0));
+  document.getElementById('lm-comps')?.insertAdjacentHTML('beforeend',_libCompRow({element:'',amount:null},0));
+  _libUpdateBase();
+}
+function _libSetUnit(unit){
+  document.getElementById('lm-unit-wt')?.classList.toggle('active', unit==='wt%');
+  document.getElementById('lm-unit-at')?.classList.toggle('active', unit==='at%');
+  const compsEl = document.getElementById('lm-comps');
+  if(compsEl) compsEl.dataset.unit = unit;
+  _libUpdateBase();
+}
+function _libUpdateBase(){
+  const baseEl = document.getElementById('lm-base-el')?.value || '';
+  const unit = document.getElementById('lm-comps')?.dataset.unit || 'wt%';
+  const amts = Array.from(document.querySelectorAll('.lib-comp-amt-input')).map(i=>parseFloat(i.value)||0);
+  const total = amts.reduce((s,v)=>s+v, 0);
+  const balance = parseFloat((100 - total).toFixed(4));
+  const display = document.getElementById('lm-base-display');
+  if(!display) return;
+  if(!baseEl){
+    display.innerHTML = `<div style="font-size:12px;color:var(--ink-faint);margin-top:8px;">Base 원소를 선택하면 잔량이 자동 계산됩니다.</div>`;
+    return;
+  }
+  const overWarn = total > 100 ? `<span style="color:var(--brick);font-size:11px;margin-left:8px;">⚠ 합계 ${total.toFixed(3)}% — 100%를 초과해요</span>` : '';
+  display.innerHTML = `<div class="lib-base-row">
+    <span class="lib-comp-el" style="font-size:13px;">${escapeHtml(baseEl)}</span>
+    <span style="color:var(--ink-faint);font-size:12px;">bal.</span>
+    <span style="font-weight:600;color:var(--ink);font-size:13px;">${balance > 0 ? balance : 0} ${unit}</span>
+    ${overWarn}
+  </div>`;
 }
 async function libModalFetchDOI(){
   const doi=document.getElementById('lm-doi')?.value.trim();
@@ -7402,11 +7485,14 @@ async function libModalFetchDOI(){
 async function saveLibraryPaperFromModal(paperId){
   const title=document.getElementById('lm-title')?.value.trim();
   if(!title){ showToast('제목을 입력해주세요'); return; }
-  const comps=Array.from(document.querySelectorAll('.lib-comp-edit-row')).map(r=>({
-    element:r.querySelector('.lib-comp-el-input')?.value.trim()||'',
-    amount:parseFloat(r.querySelector('.lib-comp-amt-input')?.value)||null,
-    unit:r.querySelector('.lib-comp-unit-input')?.value||'wt%'
-  })).filter(c=>c.element);
+  const baseEl = document.getElementById('lm-base-el')?.value.trim() || '';
+  const unit = document.getElementById('lm-comps')?.dataset.unit || 'wt%';
+  const others = Array.from(document.querySelectorAll('.lib-comp-edit-row')).map(r=>({
+    element: r.querySelector('.lib-comp-el-input')?.value.trim()||'',
+    amount: parseFloat(r.querySelector('.lib-comp-amt-input')?.value) ?? null
+  })).filter(c=>c.element && c.amount!=null);
+  const totalOthers = others.reduce((s,c)=>s+(c.amount||0), 0);
+  const compositions = { base: baseEl, unit, others, baseAmount: parseFloat(Math.max(0, 100-totalOthers).toFixed(4)) };
   const patch={
     doi:document.getElementById('lm-doi')?.value.trim()||null,
     title,
@@ -7415,7 +7501,7 @@ async function saveLibraryPaperFromModal(paperId){
     year:parseInt(document.getElementById('lm-year')?.value)||null,
     alloy_systems:(document.getElementById('lm-alloys')?.value||'').split(',').map(s=>s.trim()).filter(Boolean),
     importance:parseInt(document.getElementById('lm-imp')?.value)||3,
-    compositions:comps,
+    compositions,
     novelty:document.getElementById('lm-novelty')?.value.trim()||'',
     cite_when:document.getElementById('lm-cite')?.value.trim()||''
   };
