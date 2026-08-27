@@ -449,9 +449,11 @@ function goTab(tab){
   leaveProjectRealtime(); // 프로젝트 화면을 벗어나면 실시간 채널도 정리
   state.tab = tab;
   document.getElementById('tab-dashboard').classList.toggle('active', tab==='dashboard');
+  document.getElementById('tab-library').classList.toggle('active', tab==='library');
   document.getElementById('tab-guide').classList.toggle('active', tab==='guide');
   document.getElementById('tab-admin').classList.toggle('active', tab==='admin');
   if(tab==='dashboard') renderDashboard();
+  if(tab==='library') renderLibrary();
   if(tab==='guide') renderGuide();
   if(tab==='admin') renderAdminPanel();
 }
@@ -7019,6 +7021,546 @@ async function toggleProfileFlag(userId, field, value){
   const { error } = await window.sb.from('profiles').update(patch).eq('id', userId);
   if(error){ showToast('변경에 실패했어요: ' + error.message); renderAdminPanel(); return; }
   showToast('변경했어요');
+}
+
+/* ============== LIBRARY (논문 라이브러리) ============== */
+let libState = {
+  papers: [], groups: [], selectedPaperId: null,
+  filterGroupId: null, filterAlloy: '', searchQuery: '',
+  chartYAxis: 'hardness', loaded: false
+};
+
+async function getLibraryPapers(){
+  const { data, error } = await window.sb.from('library_papers')
+    .select('*, library_paper_groups(group_id)')
+    .order('updated_at', { ascending: false });
+  if(error){ console.error('library_papers 조회 실패:', error); return []; }
+  return (data||[]).map(p => ({
+    ...p,
+    groupIds: (p.library_paper_groups||[]).map(g => g.group_id),
+    authors_json: p.authors_json||[], compositions: p.compositions||[],
+    data_points: p.data_points||[], alloy_systems: p.alloy_systems||[]
+  }));
+}
+async function insertLibraryPaper(paper){
+  const row = { ...paper, user_id: state.currentUser.id };
+  delete row.groupIds;
+  const { data, error } = await window.sb.from('library_papers').insert(row).select().single();
+  if(error){ console.error('library_papers 삽입 실패:', error); return null; }
+  return data;
+}
+async function updateLibraryPaper(id, patch){
+  const p = { ...patch, updated_at: new Date().toISOString() };
+  delete p.groupIds; delete p.library_paper_groups;
+  const { error } = await window.sb.from('library_papers').update(p).eq('id', id);
+  if(error){ console.error('library_papers 수정 실패:', error); return false; }
+  return true;
+}
+async function deleteLibraryPaper(id){
+  const { error } = await window.sb.from('library_papers').delete().eq('id', id);
+  if(error){ console.error('library_papers 삭제 실패:', error); return false; }
+  return true;
+}
+async function getLibraryGroups(){
+  const { data, error } = await window.sb.from('library_groups').select('*').order('created_at', { ascending: true });
+  if(error){ console.error('library_groups 조회 실패:', error); return []; }
+  return data||[];
+}
+async function insertLibraryGroup(name, color){
+  const { data, error } = await window.sb.from('library_groups')
+    .insert({ name, color, user_id: state.currentUser.id }).select().single();
+  if(error){ console.error('library_groups 삽입 실패:', error); return null; }
+  return data;
+}
+async function updateLibraryGroup(id, patch){
+  const { error } = await window.sb.from('library_groups').update(patch).eq('id', id);
+  if(error){ console.error('library_groups 수정 실패:', error); return false; }
+  return true;
+}
+async function deleteLibraryGroup(id){
+  const { error } = await window.sb.from('library_groups').delete().eq('id', id);
+  if(error){ console.error('library_groups 삭제 실패:', error); return false; }
+  return true;
+}
+async function setLibraryPaperGroups(paperId, groupIds){
+  await window.sb.from('library_paper_groups').delete().eq('paper_id', paperId);
+  if(!groupIds.length) return true;
+  const { error } = await window.sb.from('library_paper_groups')
+    .insert(groupIds.map(gid => ({ paper_id: paperId, group_id: gid })));
+  if(error){ console.error('library_paper_groups 저장 실패:', error); return false; }
+  return true;
+}
+async function fetchDOIMetadata(doi){
+  try{
+    const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi.trim())}`);
+    if(!res.ok) return null;
+    const { message: w } = await res.json();
+    if(!w) return null;
+    return {
+      title: (w.title||[])[0]||'',
+      authors: (w.author||[]).map(a => [a.family,a.given].filter(Boolean).join(', ')),
+      journal: (w['container-title']||[])[0]||'',
+      year: w.published?.['date-parts']?.[0]?.[0] || w['published-print']?.['date-parts']?.[0]?.[0] || null
+    };
+  }catch(e){ console.error('CrossRef API 실패:', e); return null; }
+}
+
+async function renderLibrary(){
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="padding:40px;color:var(--ink-faint);font-size:13px;">논문 라이브러리를 불러오는 중…</div>`;
+  const [papers, groups] = await Promise.all([getLibraryPapers(), getLibraryGroups()]);
+  libState.papers = papers; libState.groups = groups; libState.loaded = true;
+  _renderLibraryLayout();
+}
+
+function _renderLibraryLayout(){
+  const main = document.getElementById('main-content');
+  const allAlloySystems = [...new Set(libState.papers.flatMap(p => p.alloy_systems||[]))].sort();
+  main.innerHTML = `
+  <div class="lib-page">
+    <div class="lib-toolbar">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn small" onclick="openAddPaperModal()">+ 논문 추가</button>
+        <button class="btn secondary small" onclick="openManageGroupsModal()">그룹 관리</button>
+      </div>
+      <input type="text" class="lib-search" id="lib-search" placeholder="제목 · 저자 · 저널 검색…" value="${escapeHtml(libState.searchQuery)}" oninput="libState.searchQuery=this.value;_reRenderLibList()">
+    </div>
+    <div class="lib-layout">
+      <div class="lib-sidebar">
+        <div class="lib-filter-section">
+          <div class="lib-filter-label">그룹</div>
+          <div class="lib-filter-options">
+            <button class="lib-filter-btn ${!libState.filterGroupId?'active':''}" onclick="libState.filterGroupId=null;_reRenderLibList()">전체</button>
+            ${libState.groups.map(g=>`<button class="lib-filter-btn ${libState.filterGroupId===g.id?'active':''}" style="${libState.filterGroupId===g.id?`background:${g.color};border-color:${g.color};color:#fff;`:''}" onclick="libState.filterGroupId='${g.id}';_reRenderLibList()">${escapeHtml(g.name)}</button>`).join('')}
+          </div>
+        </div>
+        ${allAlloySystems.length?`
+        <div class="lib-filter-section">
+          <div class="lib-filter-label">합금계</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            ${allAlloySystems.map(a=>`<button class="lib-alloy-tag ${libState.filterAlloy===a?'active':''}" onclick="libState.filterAlloy=libState.filterAlloy==='${escapeHtml(a).replace(/'/g,"\\'")}' ? '' : '${escapeHtml(a).replace(/'/g,"\\'")}';_reRenderLibList()">${escapeHtml(a)}</button>`).join('')}
+          </div>
+        </div>`:''}
+        <div id="lib-list" class="lib-list"></div>
+      </div>
+      <div class="lib-detail" id="lib-detail">
+        <div class="lib-detail-empty">
+          <div style="font-size:40px;margin-bottom:12px;">📚</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px;color:var(--ink);">논문을 선택하세요</div>
+          <div style="font-size:13px;color:var(--ink-soft);">왼쪽 목록에서 논문을 클릭하면<br>상세 정보와 차트를 볼 수 있습니다.</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  _reRenderLibList();
+  if(libState.selectedPaperId && libState.papers.find(p=>p.id===libState.selectedPaperId)){
+    renderLibraryDetail(libState.selectedPaperId);
+  }
+}
+
+function _libFilteredPapers(){
+  return libState.papers.filter(p => {
+    if(libState.filterGroupId && !(p.groupIds||[]).includes(libState.filterGroupId)) return false;
+    if(libState.filterAlloy && !(p.alloy_systems||[]).includes(libState.filterAlloy)) return false;
+    if(libState.searchQuery){
+      const q = libState.searchQuery.toLowerCase();
+      if(![p.title, p.journal, ...(p.authors_json||[])].join(' ').toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function _reRenderLibList(){
+  const listEl = document.getElementById('lib-list');
+  if(!listEl) return;
+  const papers = _libFilteredPapers();
+  if(!papers.length){
+    listEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--ink-faint);font-size:13px;">${libState.papers.length===0?`아직 논문이 없어요.<br><br><button class="btn small" onclick="openAddPaperModal()">첫 논문 추가하기</button>`:'검색 결과가 없어요.'}</div>`;
+    return;
+  }
+  listEl.innerHTML = papers.map(p => {
+    const stars = '★'.repeat(p.importance||3)+'☆'.repeat(5-(p.importance||3));
+    const dots = (p.groupIds||[]).map(gid=>{ const g=libState.groups.find(x=>x.id===gid); return g?`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color};"></span>`:''; }).join('');
+    return `<div class="lib-paper-card ${p.id===libState.selectedPaperId?'selected':''}" onclick="renderLibraryDetail('${p.id}')">
+      <div class="lib-paper-card-head"><div style="display:flex;gap:3px;align-items:center;">${dots}</div><span class="lib-stars">${stars}</span></div>
+      <div class="lib-paper-title">${escapeHtml(p.title||'(제목 없음)')}</div>
+      <div class="lib-paper-meta">${[p.journal, p.year, (p.alloy_systems||[]).join(', ')].filter(Boolean).join(' · ')}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLibraryDetail(paperId){
+  libState.selectedPaperId = paperId;
+  document.querySelectorAll('.lib-paper-card').forEach(el => {
+    el.classList.toggle('selected', el.getAttribute('onclick')?.includes(`'${paperId}'`));
+  });
+  const paper = libState.papers.find(p=>p.id===paperId);
+  if(!paper) return;
+  const detailEl = document.getElementById('lib-detail');
+  if(!detailEl) return;
+  const paperGroups = (paper.groupIds||[]).map(gid=>libState.groups.find(g=>g.id===gid)).filter(Boolean);
+  const comps = paper.compositions||[];
+  const dps = paper.data_points||[];
+  const papersWithData = libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp.conductivity!=null));
+
+  detailEl.innerHTML = `
+  <div class="lib-detail-inner">
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;">
+      <h2 class="lib-paper-detail-title" style="flex:1;">${escapeHtml(paper.title||'(제목 없음)')}</h2>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn secondary small" onclick="openEditPaperModal('${paperId}')">편집</button>
+        <button class="btn secondary small" style="color:var(--brick);" onclick="confirmDeleteLibraryPaper('${paperId}')">삭제</button>
+      </div>
+    </div>
+    ${paper.doi?`<div style="font-size:12px;color:var(--brand);font-family:monospace;margin-bottom:16px;">DOI: ${escapeHtml(paper.doi)}</div>`:''}
+
+    <div class="lib-section">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;font-size:13px;">
+        ${paper.authors_json?.length?`<div><div class="lib-section-label">저자</div><div style="color:var(--ink-soft);">${escapeHtml(paper.authors_json.slice(0,3).join('; '))+(paper.authors_json.length>3?' et al.':'')}</div></div>`:''}
+        ${paper.journal?`<div><div class="lib-section-label">저널</div><div style="color:var(--ink-soft);">${escapeHtml(paper.journal)}</div></div>`:''}
+        ${paper.year?`<div><div class="lib-section-label">연도</div><div style="color:var(--ink-soft);">${paper.year}</div></div>`:''}
+        <div><div class="lib-section-label">중요도</div><div style="color:var(--gold);">${'★'.repeat(paper.importance||3)}${'☆'.repeat(5-(paper.importance||3))}</div></div>
+      </div>
+    </div>
+
+    <div class="lib-section">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div class="lib-section-label" style="margin:0;">그룹</div>
+        <button class="btn secondary small" onclick="openAssignGroupModal('${paperId}')">지정</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${paperGroups.map(g=>`<span class="lib-group-tag" style="background:${g.color}22;color:${g.color};border-color:${g.color}55;">${escapeHtml(g.name)}</span>`).join('')}
+        ${!paperGroups.length?`<span style="font-size:12px;color:var(--ink-faint);">없음</span>`:''}
+      </div>
+    </div>
+
+    <div class="lib-section">
+      <div class="lib-section-label">합금계 태그</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${(paper.alloy_systems||[]).map(a=>`<span class="lib-alloy-tag active">${escapeHtml(a)}</span>`).join('')}
+        ${!(paper.alloy_systems||[]).length?`<span style="font-size:12px;color:var(--ink-faint);">없음</span>`:''}
+      </div>
+    </div>
+
+    ${comps.length?`<div class="lib-section">
+      <div class="lib-section-label">합금 조성</div>
+      <div class="lib-comp-table">${comps.map(c=>`<div class="lib-comp-row"><span class="lib-comp-el">${escapeHtml(c.element||'')}</span><span class="lib-comp-val">${c.amount!=null?c.amount:''} ${escapeHtml(c.unit||'wt%')}</span></div>`).join('')}</div>
+    </div>`:''}
+
+    ${paper.novelty?`<div class="lib-section"><div class="lib-section-label">Novelty / 핵심 기여</div><div class="lib-text-content">${escapeHtml(paper.novelty)}</div></div>`:''}
+    ${paper.cite_when?`<div class="lib-section"><div class="lib-section-label">인용 시점</div><div class="lib-text-content">${escapeHtml(paper.cite_when)}</div></div>`:''}
+
+    <div class="lib-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="lib-section-label" style="margin:0;">데이터 포인트 (전도도 · 경도 · 강도)</div>
+        <button class="btn secondary small" onclick="openDataPointsModal('${paperId}')">편집</button>
+      </div>
+      ${dps.length?`<table class="lib-dp-table"><thead><tr><th>Label</th><th>전도도 (%IACS)</th><th>경도 (HV)</th><th>강도 (MPa)</th></tr></thead>
+      <tbody>${dps.map(dp=>`<tr><td>${escapeHtml(dp.label||'')}</td><td>${dp.conductivity!=null?dp.conductivity:'-'}</td><td>${dp.hardness!=null?dp.hardness:'-'}</td><td>${dp.strength!=null?dp.strength:'-'}</td></tr>`).join('')}</tbody></table>`
+      :`<div style="font-size:12px;color:var(--ink-faint);">데이터 없음 — "편집"을 눌러 추가하세요</div>`}
+    </div>
+
+    ${papersWithData.length?`<div class="lib-section" style="border-bottom:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div class="lib-section-label" style="margin:0;">전도도 – 물성 맵 (전체 라이브러리)</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn secondary small ${libState.chartYAxis==='hardness'?'active':''}" onclick="libState.chartYAxis='hardness';renderLibraryDetail('${paperId}')">경도 (HV)</button>
+          <button class="btn secondary small ${libState.chartYAxis==='strength'?'active':''}" onclick="libState.chartYAxis='strength';renderLibraryDetail('${paperId}')">강도 (MPa)</button>
+        </div>
+      </div>
+      <div id="lib-chart-container" class="lib-chart-container"></div>
+    </div>`:''}
+  </div>`;
+
+  if(papersWithData.length) setTimeout(()=>_renderConductivityChart(papersWithData, paperId), 0);
+}
+
+function _renderConductivityChart(papers, highlightId){
+  const container = document.getElementById('lib-chart-container');
+  if(!container) return;
+  const yKey = libState.chartYAxis;
+  const yLabel = yKey==='hardness'?'경도 (HV)':'강도 (MPa)';
+  const allPts = [];
+  papers.forEach(p => {
+    const gc = (() => { if(!(p.groupIds||[]).length) return '#6b7280'; const g=libState.groups.find(x=>x.id===p.groupIds[0]); return g?g.color:'#6b7280'; })();
+    (p.data_points||[]).forEach(dp => {
+      if(dp.conductivity!=null && dp[yKey]!=null)
+        allPts.push({ x:dp.conductivity, y:dp[yKey], label:dp.label||'', title:p.title||'', color:gc, hi:p.id===highlightId });
+    });
+  });
+  if(!allPts.length){ container.innerHTML='<div style="padding:20px;color:var(--ink-faint);font-size:12px;text-align:center;">표시할 데이터가 없어요</div>'; return; }
+
+  const W = Math.max(container.clientWidth||440, 300), H = 300;
+  const pad = {top:24,right:24,bottom:52,left:58};
+  const xs=allPts.map(p=>p.x), ys=allPts.map(p=>p.y);
+  const xSpan=Math.max(...xs)-Math.min(...xs)||10, ySpan=Math.max(...ys)-Math.min(...ys)||50;
+  const xMin=Math.min(...xs)-xSpan*0.1, xMax=Math.max(...xs)+xSpan*0.1;
+  const yMin=Math.min(...ys)-ySpan*0.12, yMax=Math.max(...ys)+ySpan*0.12;
+  const px=v=>pad.left+(v-xMin)/(xMax-xMin)*(W-pad.left-pad.right);
+  const py=v=>pad.top+(yMax-v)/(yMax-yMin)*(H-pad.top-pad.bottom);
+  const nTX=5, nTY=5;
+  const txs=Array.from({length:nTX+1},(_,i)=>xMin+i*(xMax-xMin)/nTX);
+  const tys=Array.from({length:nTY+1},(_,i)=>yMin+i*(yMax-yMin)/nTY);
+  const grid=[...txs.map(v=>`<line x1="${px(v)}" y1="${pad.top}" x2="${px(v)}" y2="${H-pad.bottom}" stroke="var(--line)" stroke-width="1"/>`),
+              ...tys.map(v=>`<line x1="${pad.left}" y1="${py(v)}" x2="${W-pad.right}" y2="${py(v)}" stroke="var(--line)" stroke-width="1"/>`)].join('');
+  const xlabels=txs.map(v=>`<text x="${px(v)}" y="${H-pad.bottom+16}" text-anchor="middle" font-size="10" fill="var(--ink-faint)">${v.toFixed(1)}</text>`).join('');
+  const ylabels=tys.map(v=>`<text x="${pad.left-7}" y="${py(v)+4}" text-anchor="end" font-size="10" fill="var(--ink-faint)">${Math.round(v)}</text>`).join('');
+  const circles=allPts.map((pt,i)=>{
+    const cx=px(pt.x),cy=py(pt.y),r=pt.hi?8:5;
+    const safeTitle=pt.title.replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    const safeLabel=pt.label.replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    return pt.hi
+      ? `<polygon points="${cx},${cy-r*1.3} ${cx+r*1.1},${cy+r*0.7} ${cx-r*1.1},${cy+r*0.7}" fill="${pt.color}" stroke="#fff" stroke-width="1.5" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this,'${escapeHtml(yLabel).replace(/'/g,"&#39;")}')" onmouseleave="_libChartHide()"/>`
+      : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${pt.color}99" stroke="${pt.color}" stroke-width="1" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this,'${escapeHtml(yLabel).replace(/'/g,"&#39;")}')" onmouseleave="_libChartHide()"/>`;
+  }).join('');
+  const legend=`<text x="${W-pad.right}" y="${pad.top-6}" text-anchor="end" font-size="10" fill="var(--ink-soft)">▲ 현재 선택 논문</text>`;
+
+  container.innerHTML=`<div style="position:relative;">
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;width:100%;overflow:visible;">
+      ${grid}${xlabels}${ylabels}${legend}
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
+      <line x1="${pad.left}" y1="${H-pad.bottom}" x2="${W-pad.right}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
+      <text x="${pad.left+(W-pad.left-pad.right)/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">전도도 (%IACS)</text>
+      <text transform="rotate(-90)" x="${-(pad.top+(H-pad.top-pad.bottom)/2)}" y="13" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${yLabel}</text>
+      ${circles}
+    </svg>
+    <div id="lib-tip" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;font-size:12px;line-height:1.6;pointer-events:none;box-shadow:var(--shadow-card);max-width:220px;white-space:pre-line;z-index:10;"></div>
+  </div>`;
+}
+function _libChartTip(el, yLabel){
+  const tip=document.getElementById('lib-tip');
+  if(!tip) return;
+  tip.style.display='block';
+  tip.innerHTML=`<b>${el.dataset.title}</b>\n${el.dataset.label}\n전도도: ${el.dataset.x} %IACS\n${yLabel.split(' ')[0]}: ${el.dataset.y}`;
+}
+function _libChartHide(){ const t=document.getElementById('lib-tip'); if(t) t.style.display='none'; }
+
+function openAddPaperModal(){ _openPaperModal(null); }
+function openEditPaperModal(id){ _openPaperModal(id); }
+function _openPaperModal(paperId){
+  const paper=paperId?libState.papers.find(p=>p.id===paperId):null;
+  const comps=paper?.compositions||[{element:'',amount:'',unit:'wt%'}];
+  const modal=document.getElementById('modal-root');
+  modal.innerHTML=`
+  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" style="max-width:600px;max-height:90vh;overflow-y:auto;">
+      <div class="modal-head"><h3>${paper?'논문 수정':'논문 추가'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div class="field-row" style="margin-bottom:16px;">
+          <label>DOI (자동 채우기)</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="lm-doi" style="flex:1;" class="field-input" placeholder="10.1016/j.actamat.2022.118484" value="${escapeHtml(paper?.doi||'')}">
+            <button class="btn secondary small" onclick="libModalFetchDOI()">자동 채우기</button>
+          </div>
+        </div>
+        <div class="field-row"><label>제목 <span style="color:var(--brick)">*</span></label><input type="text" id="lm-title" class="field-input" value="${escapeHtml(paper?.title||'')}" placeholder="논문 제목"></div>
+        <div class="field-row"><label>저자 (쉼표 구분)</label><input type="text" id="lm-authors" class="field-input" value="${escapeHtml((paper?.authors_json||[]).join(', '))}" placeholder="Kim, J., Lee, S."></div>
+        <div style="display:grid;grid-template-columns:1fr 100px;gap:12px;">
+          <div class="field-row"><label>저널</label><input type="text" id="lm-journal" class="field-input" value="${escapeHtml(paper?.journal||'')}" placeholder="Acta Materialia"></div>
+          <div class="field-row"><label>연도</label><input type="number" id="lm-year" class="field-input" value="${paper?.year||''}" placeholder="2024"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 110px;gap:12px;">
+          <div class="field-row"><label>합금계 태그 (쉼표 구분)</label><input type="text" id="lm-alloys" class="field-input" value="${escapeHtml((paper?.alloy_systems||[]).join(', '))}" placeholder="Al-Cu, Al-Mg-Si"></div>
+          <div class="field-row"><label>중요도</label><select id="lm-imp" class="field-input">${[1,2,3,4,5].map(n=>`<option value="${n}" ${(paper?.importance||3)===n?'selected':''}>${'★'.repeat(n)}</option>`).join('')}</select></div>
+        </div>
+        <div class="field-row">
+          <label style="display:flex;align-items:center;justify-content:space-between;"><span>합금 조성</span><button class="btn secondary small" onclick="libModalAddComp()">+ 원소</button></label>
+          <div id="lm-comps">${comps.map((c,i)=>_libCompRow(c,i)).join('')}</div>
+        </div>
+        <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="이 논문의 핵심 novelty는…">${escapeHtml(paper?.novelty||'')}</textarea></div>
+        <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="고온 크리프 논의 시, 시효 처리 효과 분석 시…">${escapeHtml(paper?.cite_when||'')}</textarea></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn secondary" onclick="closeModal()">취소</button>
+        <button class="btn" onclick="saveLibraryPaperFromModal('${paperId||''}')">저장</button>
+      </div>
+    </div>
+  </div>`;
+}
+function _libCompRow(c,i){
+  return `<div class="lib-comp-edit-row">
+    <input type="text" class="lib-comp-el-input" placeholder="원소 (Cu)" value="${escapeHtml(c.element||'')}">
+    <input type="number" class="lib-comp-amt-input" placeholder="량" step="0.01" value="${c.amount!=null?c.amount:''}">
+    <select class="lib-comp-unit-input"><option value="wt%" ${(c.unit||'wt%')==='wt%'?'selected':''}>wt%</option><option value="at%" ${c.unit==='at%'?'selected':''}>at%</option></select>
+    <button class="btn secondary small" onclick="this.closest('.lib-comp-edit-row').remove()" style="padding:4px 8px;">✕</button>
+  </div>`;
+}
+function libModalAddComp(){
+  document.getElementById('lm-comps')?.insertAdjacentHTML('beforeend',_libCompRow({element:'',amount:'',unit:'wt%'},0));
+}
+async function libModalFetchDOI(){
+  const doi=document.getElementById('lm-doi')?.value.trim();
+  if(!doi) return;
+  showToast('DOI 검색 중…');
+  const meta=await fetchDOIMetadata(doi);
+  if(!meta){ showToast('DOI를 찾을 수 없어요. 직접 입력해주세요.'); return; }
+  const s=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
+  s('lm-title',meta.title); s('lm-authors',meta.authors.join(', ')); s('lm-journal',meta.journal);
+  if(meta.year) s('lm-year',meta.year);
+  showToast('자동으로 채워졌어요!');
+}
+async function saveLibraryPaperFromModal(paperId){
+  const title=document.getElementById('lm-title')?.value.trim();
+  if(!title){ showToast('제목을 입력해주세요'); return; }
+  const comps=Array.from(document.querySelectorAll('.lib-comp-edit-row')).map(r=>({
+    element:r.querySelector('.lib-comp-el-input')?.value.trim()||'',
+    amount:parseFloat(r.querySelector('.lib-comp-amt-input')?.value)||null,
+    unit:r.querySelector('.lib-comp-unit-input')?.value||'wt%'
+  })).filter(c=>c.element);
+  const patch={
+    doi:document.getElementById('lm-doi')?.value.trim()||null,
+    title,
+    authors_json:(document.getElementById('lm-authors')?.value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    journal:document.getElementById('lm-journal')?.value.trim()||'',
+    year:parseInt(document.getElementById('lm-year')?.value)||null,
+    alloy_systems:(document.getElementById('lm-alloys')?.value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    importance:parseInt(document.getElementById('lm-imp')?.value)||3,
+    compositions:comps,
+    novelty:document.getElementById('lm-novelty')?.value.trim()||'',
+    cite_when:document.getElementById('lm-cite')?.value.trim()||''
+  };
+  closeModal(); showToast('저장 중…');
+  if(paperId){
+    const ok=await updateLibraryPaper(paperId,patch);
+    if(!ok){ showToast('저장 실패'); return; }
+    const idx=libState.papers.findIndex(p=>p.id===paperId);
+    if(idx>=0) libState.papers[idx]={...libState.papers[idx],...patch};
+  } else {
+    const np=await insertLibraryPaper(patch);
+    if(!np){ showToast('저장 실패'); return; }
+    libState.papers.unshift({...np,groupIds:[],data_points:[]});
+    libState.selectedPaperId=np.id;
+  }
+  showToast('저장됐어요'); _renderLibraryLayout();
+}
+async function confirmDeleteLibraryPaper(paperId){
+  if(!confirm('이 논문을 라이브러리에서 삭제할까요?')) return;
+  showToast('삭제 중…');
+  const ok=await deleteLibraryPaper(paperId);
+  if(!ok){ showToast('삭제 실패'); return; }
+  libState.papers=libState.papers.filter(p=>p.id!==paperId);
+  libState.selectedPaperId=null;
+  showToast('삭제됐어요'); _renderLibraryLayout();
+}
+
+function openDataPointsModal(paperId){
+  const paper=libState.papers.find(p=>p.id===paperId);
+  if(!paper) return;
+  const dps=paper.data_points||[];
+  document.getElementById('modal-root').innerHTML=`
+  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" style="max-width:580px;max-height:85vh;overflow-y:auto;">
+      <div class="modal-head"><h3>데이터 포인트 편집</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">각 처리 조건별로 전도도(%IACS) · 경도(HV) · 강도(MPa)를 입력하면 맵 차트에 표시됩니다.</p>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 30px;gap:6px;margin-bottom:4px;padding:0 2px;">
+          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">Label</span>
+          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">%IACS</span>
+          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">HV</span>
+          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">MPa</span>
+          <span></span>
+        </div>
+        <div id="lm-dp-rows">${dps.map((dp,i)=>_libDpRow(dp,i)).join('')}${dps.length===0?_libDpRow({label:'',conductivity:'',hardness:'',strength:''},0):''}</div>
+        <button class="btn secondary small" onclick="libAddDpRow()" style="margin-top:8px;">+ 포인트 추가</button>
+      </div>
+      <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveDpFromModal('${paperId}')">저장</button></div>
+    </div>
+  </div>`;
+}
+function _libDpRow(dp,i){
+  return `<div class="lib-dp-edit-row">
+    <input type="text" class="lm-dp-label" placeholder="As-cast, 200°C/2h…" value="${escapeHtml(dp.label||'')}">
+    <input type="number" class="lm-dp-cond" placeholder="%IACS" step="0.1" value="${dp.conductivity!=null?dp.conductivity:''}">
+    <input type="number" class="lm-dp-hv" placeholder="HV" step="0.1" value="${dp.hardness!=null?dp.hardness:''}">
+    <input type="number" class="lm-dp-mpa" placeholder="MPa" step="1" value="${dp.strength!=null?dp.strength:''}">
+    <button class="btn secondary small" onclick="this.closest('.lib-dp-edit-row').remove()" style="padding:4px 6px;flex-shrink:0;">✕</button>
+  </div>`;
+}
+function libAddDpRow(){
+  document.getElementById('lm-dp-rows')?.insertAdjacentHTML('beforeend',_libDpRow({label:'',conductivity:'',hardness:'',strength:''},0));
+}
+async function saveDpFromModal(paperId){
+  const data_points=Array.from(document.querySelectorAll('.lib-dp-edit-row')).map(r=>({
+    label:r.querySelector('.lm-dp-label')?.value.trim()||'',
+    conductivity:parseFloat(r.querySelector('.lm-dp-cond')?.value)||null,
+    hardness:parseFloat(r.querySelector('.lm-dp-hv')?.value)||null,
+    strength:parseFloat(r.querySelector('.lm-dp-mpa')?.value)||null
+  })).filter(dp=>dp.conductivity!=null||dp.hardness!=null||dp.strength!=null);
+  closeModal(); showToast('저장 중…');
+  const ok=await updateLibraryPaper(paperId,{data_points});
+  if(!ok){ showToast('저장 실패'); return; }
+  const idx=libState.papers.findIndex(p=>p.id===paperId);
+  if(idx>=0) libState.papers[idx].data_points=data_points;
+  showToast('저장됐어요'); renderLibraryDetail(paperId);
+}
+
+function openManageGroupsModal(){ _renderGroupsModal(); }
+function _renderGroupsModal(){
+  const GCOLS=['#6366f1','#3b82f6','#0ea5e9','#10b981','#f59e0b','#f97316','#ef4444','#8b5cf6','#ec4899','#6b7280'];
+  document.getElementById('modal-root').innerHTML=`
+  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" style="max-width:420px;">
+      <div class="modal-head"><h3>그룹 관리</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div id="lm-group-list">${libState.groups.map(g=>`
+          <div class="lib-group-row" data-gid="${g.id}">
+            <span class="lib-group-dot" style="background:${g.color};"></span>
+            <input type="text" class="lib-group-name-input" value="${escapeHtml(g.name)}" onchange="updateLibraryGroup('${g.id}',{name:this.value})">
+            <button class="btn secondary small" style="color:var(--brick);padding:2px 8px;" onclick="libDeleteGroup('${g.id}')">삭제</button>
+          </div>`).join('')}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:14px;">
+          <input type="text" id="lm-gnew" class="field-input" style="flex:1;" placeholder="새 그룹 이름">
+          <input type="color" id="lm-gcol" value="${GCOLS[libState.groups.length%GCOLS.length]}" style="width:36px;height:32px;border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;padding:2px;">
+          <button class="btn small" onclick="libAddGroup()">추가</button>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn" onclick="closeModal();_renderLibraryLayout()">완료</button></div>
+    </div>
+  </div>`;
+}
+async function libAddGroup(){
+  const name=document.getElementById('lm-gnew')?.value.trim();
+  const color=document.getElementById('lm-gcol')?.value||'#6366f1';
+  if(!name){ showToast('그룹 이름을 입력해주세요'); return; }
+  const g=await insertLibraryGroup(name,color);
+  if(!g){ showToast('그룹 추가 실패'); return; }
+  libState.groups.push(g); showToast('그룹이 추가됐어요'); _renderGroupsModal();
+}
+async function libDeleteGroup(gid){
+  if(!confirm('이 그룹을 삭제할까요?')) return;
+  const ok=await deleteLibraryGroup(gid);
+  if(!ok){ showToast('삭제 실패'); return; }
+  libState.groups=libState.groups.filter(g=>g.id!==gid);
+  libState.papers.forEach(p=>{ p.groupIds=(p.groupIds||[]).filter(id=>id!==gid); });
+  showToast('그룹이 삭제됐어요'); _renderGroupsModal();
+}
+function openAssignGroupModal(paperId){
+  const paper=libState.papers.find(p=>p.id===paperId);
+  if(!paper) return;
+  document.getElementById('modal-root').innerHTML=`
+  <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" style="max-width:360px;">
+      <div class="modal-head"><h3>그룹 지정</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        ${!libState.groups.length?`<div style="color:var(--ink-faint);font-size:13px;">그룹이 없어요. "그룹 관리"에서 먼저 만들어주세요.</div>`:
+          libState.groups.map(g=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;border-bottom:1px solid var(--line);">
+            <input type="checkbox" value="${g.id}" ${(paper.groupIds||[]).includes(g.id)?'checked':''}>
+            <span style="width:12px;height:12px;border-radius:50%;background:${g.color};flex-shrink:0;"></span>
+            <span style="font-size:13px;">${escapeHtml(g.name)}</span>
+          </label>`).join('')}
+      </div>
+      <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveAssignGroups('${paperId}')">저장</button></div>
+    </div>
+  </div>`;
+}
+async function saveAssignGroups(paperId){
+  const groupIds=Array.from(document.querySelectorAll('#modal-root input[type=checkbox]:checked')).map(c=>c.value);
+  closeModal(); showToast('저장 중…');
+  const ok=await setLibraryPaperGroups(paperId,groupIds);
+  if(!ok){ showToast('저장 실패'); return; }
+  const idx=libState.papers.findIndex(p=>p.id===paperId);
+  if(idx>=0) libState.papers[idx].groupIds=groupIds;
+  showToast('그룹이 업데이트됐어요'); renderLibraryDetail(paperId); _reRenderLibList();
 }
 
 /* ============== INIT ============== */
