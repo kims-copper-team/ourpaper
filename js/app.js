@@ -6929,11 +6929,49 @@ async function handleSignUp(){
   }
   if(!session){
     // 이메일 확인이 켜져 있는 프로젝트는 가입 직후 세션이 바로 생기지 않는다.
-    renderAuthScreen('signin');
-    setAuthMessage('가입 확인 이메일을 보냈어요. 메일함을 확인한 뒤 로그인해주세요.', 'notice');
+    renderEmailVerifyScreen(email);
     return;
   }
   await bootAfterAuth();
+}
+
+function renderEmailVerifyScreen(email){
+  const root = document.getElementById('auth-screen');
+  root.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-card" style="max-width:440px;text-align:center;">
+        <div class="brand" style="justify-content:center;margin-bottom:20px;">
+          <div><div class="brand-name">논문 투고 워크스페이스</div></div>
+        </div>
+        <div style="font-size:48px;margin-bottom:16px;">📬</div>
+        <h1 style="font-size:20px;margin:0 0 10px;">이메일을 확인해주세요</h1>
+        <p style="font-size:14px;color:rgba(237,238,240,0.7);line-height:1.7;margin:0 0 20px;">
+          <b style="color:var(--brand);">${escapeHtml(email)}</b>로<br>
+          인증 메일을 보냈습니다.<br>
+          메일함을 열어 <b style="color:#fff;">「이메일 인증하기」 버튼</b>을 클릭하면<br>
+          가입이 완료됩니다.
+        </p>
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:14px 16px;margin-bottom:20px;text-align:left;">
+          <div style="font-size:12px;color:rgba(237,238,240,0.5);margin-bottom:8px;font-weight:600;letter-spacing:0.4px;">확인 순서</div>
+          <div style="font-size:13px;color:rgba(237,238,240,0.75);line-height:2;">
+            ① 메일함에서 <b style="color:#fff;">no-reply@mail.app.supabase.io</b> 발신 메일 찾기<br>
+            ② 메일 안의 <b style="color:var(--brand);">초록색 「이메일 인증하기」 버튼</b> 클릭<br>
+            ③ 이 페이지로 돌아와서 로그인
+          </div>
+        </div>
+        <div style="font-size:12px;color:rgba(237,238,240,0.45);margin-bottom:18px;">
+          메일이 안 보이면 <b>스팸 메일함</b>도 확인해보세요.
+        </div>
+        <button class="btn" style="width:100%;margin-bottom:10px;" onclick="showAuthScreen('signin')">로그인 화면으로 이동</button>
+        <button class="btn secondary" style="width:100%;color:var(--topbar-ink);border-color:rgba(237,238,240,0.25);" onclick="resendVerifyEmail('${escapeHtml(email).replace(/'/g,"&#39;")}')">인증 메일 다시 보내기</button>
+      </div>
+    </div>`;
+}
+
+async function resendVerifyEmail(email){
+  const { error } = await window.sb.auth.resend({ type: 'signup', email });
+  if(error){ alert('재발송 실패: ' + error.message); return; }
+  alert('인증 메일을 다시 보냈습니다. 메일함을 확인해주세요.');
 }
 
 async function handleLogout(){
