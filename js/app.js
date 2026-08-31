@@ -7468,6 +7468,21 @@ function _openPaperModal(paperId){
 
         <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="이 논문의 핵심 novelty는…">${escapeHtml(paper?.novelty||'')}</textarea></div>
         <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="고온 크리프 논의 시, 시효 처리 효과 분석 시…">${escapeHtml(paper?.cite_when||'')}</textarea></div>
+
+        <div class="field-row">
+          <label>PDF 첨부</label>
+          <div class="lib-pdf-upload-row" id="lm-pdf-row">
+            ${paper?.pdf_path
+              ? `<span class="lib-pdf-attached">📄 PDF 있음</span>
+                 <label class="btn secondary small" style="cursor:pointer;">교체
+                   <input type="file" id="lm-pdf-input" accept="application/pdf" style="display:none;" onchange="_lmPdfSelected(this)">
+                 </label>`
+              : `<label class="btn secondary small" style="cursor:pointer;">📎 PDF 선택
+                   <input type="file" id="lm-pdf-input" accept="application/pdf" style="display:none;" onchange="_lmPdfSelected(this)">
+                 </label>
+                 <span id="lm-pdf-name" style="font-size:12px;color:var(--ink-faint);">선택 안 됨</span>`}
+          </div>
+        </div>
       </div>
       <div class="modal-actions">
         <button class="btn secondary" onclick="closeModal()">취소</button>
@@ -7527,6 +7542,12 @@ async function libModalFetchDOI(){
   if(meta.year) s('lm-year',meta.year);
   showToast('자동으로 채워졌어요!');
 }
+function _lmPdfSelected(input){
+  const file = input.files[0];
+  const nameEl = document.getElementById('lm-pdf-name');
+  if(nameEl) nameEl.textContent = file ? file.name : '선택 안 됨';
+}
+
 async function saveLibraryPaperFromModal(paperId){
   const title=document.getElementById('lm-title')?.value.trim();
   if(!title){ showToast('제목을 입력해주세요'); return; }
@@ -7538,6 +7559,7 @@ async function saveLibraryPaperFromModal(paperId){
   })).filter(c=>c.element && c.amount!=null);
   const totalOthers = others.reduce((s,c)=>s+(c.amount||0), 0);
   const compositions = { base: baseEl, unit, others, baseAmount: parseFloat(Math.max(0, 100-totalOthers).toFixed(4)) };
+  const pdfFile = document.getElementById('lm-pdf-input')?.files[0] || null;
   const patch={
     doi:document.getElementById('lm-doi')?.value.trim()||null,
     title,
@@ -7550,7 +7572,9 @@ async function saveLibraryPaperFromModal(paperId){
     novelty:document.getElementById('lm-novelty')?.value.trim()||'',
     cite_when:document.getElementById('lm-cite')?.value.trim()||''
   };
-  closeModal(); showToast('저장 중…');
+  closeModal();
+  showToast(pdfFile ? '저장 및 PDF 업로드 중…' : '저장 중…');
+  let savedId = paperId;
   if(paperId){
     const ok=await updateLibraryPaper(paperId,patch);
     if(!ok){ showToast('저장 실패'); return; }
@@ -7559,10 +7583,28 @@ async function saveLibraryPaperFromModal(paperId){
   } else {
     const np=await insertLibraryPaper(patch);
     if(!np){ showToast('저장 실패'); return; }
+    savedId = np.id;
     libState.papers.unshift({...np,groupIds:[],data_points:[]});
     libState.selectedPaperId=np.id;
   }
-  showToast('저장됐어요'); _renderLibraryLayout();
+  // PDF 업로드 (파일이 선택된 경우)
+  if(pdfFile && savedId){
+    if(pdfFile.size > 50*1024*1024){ showToast('PDF 50MB 초과 — 저장은 완료됐어요'); }
+    else {
+      const path = `${state.currentUser.id}/${savedId}.pdf`;
+      const { error } = await window.sb.storage.from('library-pdfs').upload(path, pdfFile, {upsert:true, contentType:'application/pdf'});
+      if(error){ showToast('PDF 업로드 실패: '+error.message); }
+      else {
+        await window.sb.from('library_papers').update({pdf_path:path}).eq('id',savedId);
+        const paper = libState.papers.find(p=>p.id===savedId);
+        if(paper) paper.pdf_path = path;
+        showToast('저장 및 PDF 업로드 완료!');
+      }
+    }
+  } else {
+    showToast('저장됐어요');
+  }
+  _renderLibraryLayout();
 }
 async function confirmDeleteLibraryPaper(paperId){
   if(!confirm('이 논문을 라이브러리에서 삭제할까요?')) return;
