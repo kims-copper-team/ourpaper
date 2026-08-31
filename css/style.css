@@ -985,3 +985,55 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .lib-group-dot{ width:12px; height:12px; border-radius:50%; flex-shrink:0; }
 .lib-group-name-input{ flex:1; border:none; background:transparent; font-size:13px; outline:none; padding:2px 0; color:var(--ink); }
 .btn.secondary.small.active{ background:var(--brand-bg); border-color:var(--brand); color:var(--brand); font-weight:600; }
+
+/* ---------- PDF 바 (라이브러리 상세) ---------- */
+.lib-pdf-bar{ display:flex; align-items:center; gap:8px; margin-bottom:16px; padding:10px 14px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
+
+/* ---------- PDF 뷰어 ---------- */
+.pdf-viewer-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; display:flex; align-items:stretch; justify-content:center; padding:20px; }
+.pdf-viewer-modal{ display:flex; flex-direction:column; width:100%; max-width:1400px; background:var(--paper-card); border-radius:12px; overflow:hidden; position:relative; }
+.pdf-viewer-topbar{ display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--line); flex-shrink:0; }
+.pdf-viewer-title{ flex:1; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pdf-viewer-body{ display:flex; flex:1; overflow:hidden; }
+
+/* Left: PDF pages */
+.pdf-pages-panel{ flex:1; overflow-y:auto; padding:20px; background:var(--paper); display:flex; flex-direction:column; align-items:center; gap:24px; }
+.pdf-page-wrap{ display:flex; flex-direction:column; align-items:center; gap:6px; width:100%; }
+.pdf-page-label{ font-size:11px; color:var(--ink-faint); align-self:flex-start; margin-left:4px; }
+.pdf-canvas-wrap{ position:relative; box-shadow:0 2px 16px rgba(0,0,0,0.18); border-radius:2px; overflow:hidden; line-height:0; }
+.pdf-canvas-wrap canvas{ display:block; }
+
+/* PDF.js text layer */
+.pdf-text-layer{ position:absolute; inset:0; overflow:hidden; opacity:0; line-height:1; }
+.pdf-text-layer span{ color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0 0; }
+.pdf-text-layer ::selection{ background:#a3b8f880; }
+.pdf-text-layer:hover{ opacity:1; }
+.pdf-text-layer{ opacity:1; }
+
+/* Highlight overlay layer */
+.pdf-hl-layer{ position:absolute; inset:0; pointer-events:none; }
+.pdf-hl-layer > div{ pointer-events:auto; }
+
+/* Right: Annotations panel */
+.pdf-ann-panel{ width:300px; flex-shrink:0; display:flex; flex-direction:column; border-left:1px solid var(--line); }
+.pdf-ann-panel-header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); flex-shrink:0; }
+.pdf-ann-list{ flex:1; overflow-y:auto; }
+.pdf-ann-empty{ padding:24px 16px; font-size:13px; color:var(--ink-faint); text-align:center; line-height:1.7; }
+.pdf-ann-item{ padding:12px 14px; border-bottom:1px solid var(--line); transition:background .15s; }
+.pdf-ann-item:last-child{ border-bottom:none; }
+.pdf-ann-active{ background:var(--brand-bg); }
+.pdf-ann-item-top{ display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+.pdf-ann-excerpt{ font-size:11.5px; color:var(--ink-soft); line-height:1.5; font-style:italic; margin-bottom:6px; }
+.pdf-ann-del-btn{ background:none; border:none; color:var(--ink-faint); cursor:pointer; font-size:18px; line-height:1; padding:0 2px; }
+.pdf-ann-del-btn:hover{ color:var(--brick); }
+.pdf-ann-label{ display:block; font-size:10.5px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.5px; margin:6px 0 3px; }
+.pdf-ann-input{ width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:12px; resize:vertical; background:var(--paper); color:var(--ink); font-family:inherit; line-height:1.5; }
+.pdf-ann-input:focus{ border-color:var(--brand); outline:none; }
+
+/* Selection popup */
+.pdf-sel-popup{ position:absolute; z-index:200; background:var(--paper-card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; box-shadow:0 6px 24px rgba(0,0,0,0.22); min-width:200px; pointer-events:auto; }
+.pdf-sel-text{ font-size:11px; color:var(--ink-faint); margin-bottom:8px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pdf-sel-colors{ display:flex; gap:8px; margin-bottom:8px; }
+.pdf-color-btn{ width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; color:white; transition:transform .1s; }
+.pdf-color-btn:hover{ transform:scale(1.2); border-color:rgba(255,255,255,0.5); }
+.pdf-sel-cancel{ background:none; border:none; font-size:12px; color:var(--ink-faint); cursor:pointer; padding:0; }

@@ -7252,7 +7252,14 @@ function renderLibraryDetail(paperId){
         <button class="btn secondary small" style="color:var(--brick);" onclick="confirmDeleteLibraryPaper('${paperId}')">삭제</button>
       </div>
     </div>
-    ${paper.doi?`<div style="font-size:12px;color:var(--brand);font-family:monospace;margin-bottom:16px;">DOI: ${escapeHtml(paper.doi)}</div>`:''}
+    ${paper.doi?`<div style="font-size:12px;color:var(--brand);font-family:monospace;margin-bottom:12px;">DOI: ${escapeHtml(paper.doi)}</div>`:''}
+
+    <div class="lib-pdf-bar">
+      ${paper.pdf_path
+        ? `<button class="btn small" onclick="openPdfViewer('${paperId}')">📄 PDF 보기</button>
+           <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">교체</button>`
+        : `<button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">📎 PDF 업로드</button>`}
+    </div>
 
     <div class="lib-section">
       <div style="display:flex;flex-wrap:wrap;gap:20px;font-size:13px;">
@@ -7685,6 +7692,304 @@ async function saveAssignGroups(paperId){
   const idx=libState.papers.findIndex(p=>p.id===paperId);
   if(idx>=0) libState.papers[idx].groupIds=groupIds;
   showToast('그룹이 업데이트됐어요'); renderLibraryDetail(paperId); _reRenderLibList();
+}
+
+/* ============== PDF VIEWER ============== */
+let pdfState = {
+  pdfDoc: null, totalPages: 0, scale: 1.5,
+  annotations: [], paperId: null, _pendingSel: null
+};
+
+function _initPdfJs(){
+  if(window.pdfjsLib)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+async function uploadPaperPdf(paperId){
+  const input = document.createElement('input');
+  input.type='file'; input.accept='application/pdf';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if(!file) return;
+    if(file.size > 50*1024*1024){ showToast('50MB 이하 PDF만 업로드 가능합니다.'); return; }
+    showToast('PDF 업로드 중…');
+    const path = `${state.currentUser.id}/${paperId}.pdf`;
+    const { error } = await window.sb.storage.from('library-pdfs').upload(path, file, {upsert:true, contentType:'application/pdf'});
+    if(error){ showToast('업로드 실패: '+error.message); return; }
+    const { error: e2 } = await window.sb.from('library_papers').update({pdf_path:path}).eq('id',paperId);
+    if(e2){ showToast('저장 실패: '+e2.message); return; }
+    const paper = libState.papers.find(p=>p.id===paperId);
+    if(paper) paper.pdf_path = path;
+    showToast('PDF 업로드 완료!');
+    renderLibraryDetail(paperId);
+  };
+  input.click();
+}
+
+async function openPdfViewer(paperId){
+  const paper = libState.papers.find(p=>p.id===paperId);
+  if(!paper?.pdf_path){ showToast('업로드된 PDF가 없습니다.'); return; }
+  _initPdfJs();
+  if(!window.pdfjsLib){ showToast('PDF.js를 로드할 수 없습니다.'); return; }
+
+  pdfState.paperId = paperId;
+  pdfState.pdfDoc = null;
+  pdfState.annotations = [];
+  pdfState._pendingSel = null;
+
+  document.getElementById('modal-root').innerHTML = `
+    <div class="pdf-viewer-overlay" onclick="if(event.target===this)closePdfViewer()">
+      <div class="pdf-viewer-modal" onclick="event.stopPropagation()">
+        <div class="pdf-viewer-topbar">
+          <span class="pdf-viewer-title">${escapeHtml(paper.title||'PDF 뷰어')}</span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
+            <button class="btn secondary small" onclick="closePdfViewer()">닫기</button>
+          </div>
+        </div>
+        <div class="pdf-viewer-body">
+          <div class="pdf-pages-panel" id="pdf-pages-panel">
+            <div style="padding:40px;text-align:center;color:var(--ink-faint);font-size:13px;">PDF 불러오는 중…</div>
+          </div>
+          <div class="pdf-ann-panel">
+            <div class="pdf-ann-panel-header">
+              <span style="font-weight:600;font-size:13px;">메모 · 번역</span>
+              <span id="pdf-ann-count" style="font-size:12px;color:var(--ink-faint);"></span>
+            </div>
+            <div class="pdf-ann-list" id="pdf-ann-list">
+              <div class="pdf-ann-empty">PDF 텍스트를 드래그해서<br>하이라이트를 추가하세요</div>
+            </div>
+          </div>
+        </div>
+        <div id="pdf-sel-popup" class="pdf-sel-popup" style="display:none;"></div>
+      </div>
+    </div>`;
+
+  // Load annotations
+  const { data: annsData } = await window.sb.from('library_annotations')
+    .select('*').eq('paper_id', paperId).order('page_num');
+  pdfState.annotations = annsData || [];
+  _renderPdfAnnList();
+
+  // Get signed URL
+  const { data: urlData, error: urlErr } = await window.sb.storage
+    .from('library-pdfs').createSignedUrl(paper.pdf_path, 7200);
+  if(urlErr || !urlData?.signedUrl){
+    document.getElementById('pdf-pages-panel').innerHTML =
+      `<div style="padding:24px;color:var(--brick);">PDF URL 로드 실패: ${escapeHtml(urlErr?.message||'')}</div>`;
+    return;
+  }
+
+  // Load PDF
+  try {
+    const pdf = await pdfjsLib.getDocument({
+      url: urlData.signedUrl,
+      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+      cMapPacked: true
+    }).promise;
+    pdfState.pdfDoc = pdf;
+    pdfState.totalPages = pdf.numPages;
+    await _pdfRenderAllPages();
+  } catch(err){
+    document.getElementById('pdf-pages-panel').innerHTML =
+      `<div style="padding:24px;color:var(--brick);">PDF 로드 실패: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function closePdfViewer(){ document.getElementById('modal-root').innerHTML=''; }
+
+async function _pdfRenderAllPages(){
+  const panel = document.getElementById('pdf-pages-panel');
+  if(!panel || !pdfState.pdfDoc) return;
+  panel.innerHTML = '';
+  for(let pn=1; pn<=pdfState.totalPages; pn++){
+    const wrap = document.createElement('div');
+    wrap.className = 'pdf-page-wrap';
+    wrap.innerHTML = `<div class="pdf-page-label">p. ${pn}</div>`;
+    const cw = document.createElement('div');
+    cw.className = 'pdf-canvas-wrap';
+    cw.id = `pdf-cw-${pn}`;
+    const cv = document.createElement('canvas'); cv.id = `pdf-cv-${pn}`;
+    const tl = document.createElement('div'); tl.className='pdf-text-layer'; tl.id=`pdf-tl-${pn}`;
+    const hl = document.createElement('div'); hl.className='pdf-hl-layer'; hl.id=`pdf-hl-${pn}`;
+    cw.appendChild(cv); cw.appendChild(tl); cw.appendChild(hl);
+    wrap.appendChild(cw); panel.appendChild(wrap);
+    _pdfRenderPage(pn);
+  }
+}
+
+async function _pdfRenderPage(pn){
+  if(!pdfState.pdfDoc) return;
+  const page = await pdfState.pdfDoc.getPage(pn);
+  const vp = page.getViewport({scale: pdfState.scale});
+  const cv = document.getElementById(`pdf-cv-${pn}`);
+  const tl = document.getElementById(`pdf-tl-${pn}`);
+  const hl = document.getElementById(`pdf-hl-${pn}`);
+  const cw = document.getElementById(`pdf-cw-${pn}`);
+  if(!cv || !tl) return;
+
+  cv.width = vp.width; cv.height = vp.height;
+  [cw, tl, hl].forEach(el=>{ if(el){ el.style.width=vp.width+'px'; el.style.height=vp.height+'px'; }});
+
+  await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise;
+
+  const tc = await page.getTextContent();
+  tl.innerHTML = '';
+  try {
+    const r = pdfjsLib.renderTextLayer({textContent:tc, container:tl, viewport:vp, textDivs:[]});
+    if(r?.promise) await r.promise;
+    else if(r?.render) await r.render();
+  } catch(e){ /* some versions differ */ }
+
+  tl.addEventListener('mouseup', e => _pdfOnSelectionUp(e, pn, cw, vp));
+  _pdfDrawHighlights(pn, vp);
+}
+
+function _pdfDrawHighlights(pn, vp){
+  const hl = document.getElementById(`pdf-hl-${pn}`);
+  if(!hl) return;
+  hl.innerHTML = '';
+  const COLS = {yellow:'#f59e0b', pink:'#ec4899', green:'#10b981', blue:'#3b82f6'};
+  pdfState.annotations.filter(a=>a.page_num===pn).forEach(ann=>{
+    const col = COLS[ann.color||'yellow'];
+    (ann.rects||[]).forEach(r=>{
+      const d = document.createElement('div');
+      d.style.cssText = `position:absolute;pointer-events:auto;cursor:pointer;`
+        +`left:${r.x*vp.width}px;top:${r.y*vp.height}px;`
+        +`width:${r.w*vp.width}px;height:${r.h*vp.height}px;`
+        +`background:${col}40;border-bottom:2.5px solid ${col};`;
+      d.title = ann.memo||ann.selected_text?.substring(0,60)||'';
+      d.onclick = () => _pdfScrollToAnn(ann.id);
+      hl.appendChild(d);
+    });
+  });
+}
+
+function _pdfOnSelectionUp(e, pn, cwEl, vp){
+  const sel = window.getSelection();
+  if(!sel || sel.isCollapsed || !sel.toString().trim()){
+    document.getElementById('pdf-sel-popup').style.display='none';
+    pdfState._pendingSel = null; return;
+  }
+  const txt = sel.toString().trim();
+  if(!txt) return;
+
+  const range = sel.getRangeAt(0);
+  const cwRect = cwEl.getBoundingClientRect();
+  const rects = [];
+  const crs = range.getClientRects();
+  for(let i=0; i<crs.length; i++){
+    const cr = crs[i];
+    if(cr.width<2||cr.height<2) continue;
+    rects.push({
+      x:(cr.left-cwRect.left)/cwRect.width, y:(cr.top-cwRect.top)/cwRect.height,
+      w:cr.width/cwRect.width, h:cr.height/cwRect.height
+    });
+  }
+  pdfState._pendingSel = {pn, txt, rects};
+
+  const popup = document.getElementById('pdf-sel-popup');
+  const modal = document.querySelector('.pdf-viewer-modal');
+  const mr = modal?.getBoundingClientRect()||{top:0,left:0};
+  const sr = range.getBoundingClientRect();
+  popup.style.display='block';
+  popup.style.top=(sr.bottom-mr.top+6)+'px';
+  popup.style.left=Math.max(4,sr.left-mr.left)+'px';
+  popup.innerHTML = `
+    <div class="pdf-sel-text">"${escapeHtml(txt.substring(0,60))}${txt.length>60?'…':''}"</div>
+    <div class="pdf-sel-colors">
+      <button class="pdf-color-btn" style="background:#f59e0b;" onclick="_pdfAddHighlight('yellow')" title="노랑">●</button>
+      <button class="pdf-color-btn" style="background:#ec4899;" onclick="_pdfAddHighlight('pink')" title="분홍">●</button>
+      <button class="pdf-color-btn" style="background:#10b981;" onclick="_pdfAddHighlight('green')" title="초록">●</button>
+      <button class="pdf-color-btn" style="background:#3b82f6;" onclick="_pdfAddHighlight('blue')" title="파랑">●</button>
+    </div>
+    <button class="pdf-sel-cancel" onclick="document.getElementById('pdf-sel-popup').style.display='none'">취소</button>`;
+}
+
+async function _pdfAddHighlight(color){
+  document.getElementById('pdf-sel-popup').style.display='none';
+  window.getSelection()?.removeAllRanges();
+  const s = pdfState._pendingSel;
+  if(!s) return;
+  pdfState._pendingSel = null;
+
+  const { data, error } = await window.sb.from('library_annotations').insert({
+    paper_id: pdfState.paperId,
+    user_id: state.currentUser.id,
+    page_num: s.pn,
+    selected_text: s.txt,
+    rects: s.rects,
+    memo: '', translation: '', color
+  }).select().single();
+  if(error){ showToast('저장 실패: '+error.message); return; }
+
+  pdfState.annotations.push(data);
+  _renderPdfAnnList();
+
+  const page = await pdfState.pdfDoc.getPage(s.pn);
+  const vp = page.getViewport({scale:pdfState.scale});
+  _pdfDrawHighlights(s.pn, vp);
+  setTimeout(()=>_pdfScrollToAnn(data.id), 150);
+}
+
+function _pdfScrollToAnn(annId){
+  const el = document.getElementById(`pdf-ann-${annId}`);
+  if(!el) return;
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+  document.querySelectorAll('.pdf-ann-item').forEach(e=>e.classList.remove('pdf-ann-active'));
+  el.classList.add('pdf-ann-active');
+  const m = el.querySelector('textarea');
+  if(m && !m.value) setTimeout(()=>m.focus(), 100);
+}
+
+function _renderPdfAnnList(){
+  const listEl = document.getElementById('pdf-ann-list');
+  const countEl = document.getElementById('pdf-ann-count');
+  if(!listEl) return;
+  const sorted = [...pdfState.annotations].sort((a,b)=>a.page_num-b.page_num);
+  if(countEl) countEl.textContent = sorted.length?`${sorted.length}개`:'';
+  if(!sorted.length){
+    listEl.innerHTML = '<div class="pdf-ann-empty">PDF 텍스트를 드래그해서<br>하이라이트를 추가하세요</div>';
+    return;
+  }
+  const COLS={yellow:'#f59e0b', pink:'#ec4899', green:'#10b981', blue:'#3b82f6'};
+  listEl.innerHTML = sorted.map(ann=>{
+    const col=COLS[ann.color||'yellow'];
+    return `<div class="pdf-ann-item" id="pdf-ann-${ann.id}">
+      <div class="pdf-ann-item-top">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};flex-shrink:0;"></span>
+        <span style="font-size:11px;color:var(--ink-faint);flex:1;">p.${ann.page_num}</span>
+        <button class="pdf-ann-del-btn" onclick="_pdfDeleteAnn('${ann.id}',${ann.page_num})" title="삭제">×</button>
+      </div>
+      <div class="pdf-ann-excerpt">"${escapeHtml((ann.selected_text||'').substring(0,70))}${(ann.selected_text||'').length>70?'…':''}"</div>
+      <label class="pdf-ann-label">메모</label>
+      <textarea class="pdf-ann-input" rows="2" placeholder="메모를 입력하세요…"
+        oninput="pdfState.annotations.find(a=>a.id==='${ann.id}')&&(pdfState.annotations.find(a=>a.id==='${ann.id}').memo=this.value)"
+        onblur="_pdfSaveAnn('${ann.id}')">${escapeHtml(ann.memo||'')}</textarea>
+      <label class="pdf-ann-label">번역</label>
+      <textarea class="pdf-ann-input" rows="2" placeholder="번역을 입력하세요…"
+        oninput="pdfState.annotations.find(a=>a.id==='${ann.id}')&&(pdfState.annotations.find(a=>a.id==='${ann.id}').translation=this.value)"
+        onblur="_pdfSaveAnn('${ann.id}')">${escapeHtml(ann.translation||'')}</textarea>
+    </div>`;
+  }).join('');
+}
+
+async function _pdfSaveAnn(annId){
+  const ann = pdfState.annotations.find(a=>a.id===annId);
+  if(!ann) return;
+  await window.sb.from('library_annotations').update({memo:ann.memo||'',translation:ann.translation||''}).eq('id',annId);
+}
+
+async function _pdfDeleteAnn(annId, pn){
+  if(!confirm('이 하이라이트를 삭제할까요?')) return;
+  await window.sb.from('library_annotations').delete().eq('id',annId);
+  pdfState.annotations = pdfState.annotations.filter(a=>a.id!==annId);
+  _renderPdfAnnList();
+  if(pdfState.pdfDoc){
+    const page = await pdfState.pdfDoc.getPage(pn);
+    const vp = page.getViewport({scale:pdfState.scale});
+    _pdfDrawHighlights(pn, vp);
+  }
 }
 
 /* ============== INIT ============== */
