@@ -7795,6 +7795,7 @@ async function openPdfViewer(paperId){
               <span id="pdf-zoom-label" class="pdf-zoom-label">100%</span>
               <button class="pdf-zoom-btn" onclick="_pdfZoom(+0.1)" title="확대">＋</button>
             </div>
+            <button class="btn secondary small" id="pdf-ann-toggle-btn" onclick="_pdfToggleAnnPanel()" title="메모·번역 패널 열기/닫기">메모 ▶</button>
             <button class="btn secondary small" id="pdf-fs-btn" onclick="_pdfToggleFullscreen()">전체화면</button>
             <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
             <button class="btn secondary small" onclick="closePdfViewer()">닫기</button>
@@ -7850,6 +7851,14 @@ async function openPdfViewer(paperId){
 }
 
 function closePdfViewer(){ document.getElementById('modal-root').innerHTML=''; }
+
+function _pdfToggleAnnPanel(){
+  const panel = document.querySelector('.pdf-ann-panel');
+  const btn = document.getElementById('pdf-ann-toggle-btn');
+  if(!panel) return;
+  const hidden = panel.classList.toggle('pdf-ann-hidden');
+  if(btn) btn.textContent = hidden ? '메모 ▶' : '메모 ◀';
+}
 
 function _pdfToggleFullscreen(){
   pdfState.fullscreen = !pdfState.fullscreen;
