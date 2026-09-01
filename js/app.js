@@ -7564,6 +7564,7 @@ function _libChartTip(el){
 }
 function _libChartHide(){ const t=document.getElementById('lib-tip'); if(t) t.style.display='none'; }
 
+let _libModalPaperId = null;
 function openAddPaperModal(){ _openPaperModal(null); }
 function openEditPaperModal(id){ _openPaperModal(id); }
 const LIB_BASE_ELEMENTS = ['Al','Cu','Ni','Fe','Ti','Mg','Zn','Co','Ag','Au','Pt','Pb','Sn','Mo','W','Cr','Mn','V','Zr','Nb','Ta','Hf','Re','Ru','Ir','Pd','Rh'];
@@ -7584,6 +7585,7 @@ function _libGetCompData(paper){
 }
 
 function _openPaperModal(paperId){
+  _libModalPaperId = paperId || null;
   const paper=paperId?libState.papers.find(p=>p.id===paperId):null;
   const cd = _libGetCompData(paper);
   const modal=document.getElementById('modal-root');
@@ -7598,8 +7600,9 @@ function _openPaperModal(paperId){
             <input type="text" id="lm-doi" style="flex:1;" class="field-input" placeholder="10.1016/j.actamat.2022.118484" value="${escapeHtml(paper?.doi||'')}">
             <button class="btn secondary small" onclick="libModalFetchDOI()">자동 채우기</button>
           </div>
+          <div id="lm-dup-warn" style="color:var(--brick);font-size:12px;margin-top:5px;"></div>
         </div>
-        <div class="field-row"><label>제목 <span style="color:var(--brick)">*</span></label><input type="text" id="lm-title" class="field-input" value="${escapeHtml(paper?.title||'')}" placeholder="논문 제목"></div>
+        <div class="field-row"><label>제목 <span style="color:var(--brick)">*</span></label><input type="text" id="lm-title" class="field-input" value="${escapeHtml(paper?.title||'')}" placeholder="논문 제목" oninput="_libCheckTitleDup(this.value)"></div>
         <div class="field-row"><label>저자 (쉼표 구분)</label><input type="text" id="lm-authors" class="field-input" value="${escapeHtml((paper?.authors_json||[]).join(', '))}" placeholder="Kim, J., Lee, S."></div>
         <div style="display:grid;grid-template-columns:1fr 100px;gap:12px;">
           <div class="field-row"><label>저널</label><input type="text" id="lm-journal" class="field-input" value="${escapeHtml(paper?.journal||'')}" placeholder="Acta Materialia"></div>
@@ -7710,9 +7713,33 @@ function _libUpdateBase(){
     ${overWarn}
   </div>`;
 }
+function _libCheckTitleDup(title){
+  if(_libModalPaperId) return; // 수정 모드에서는 체크 안 함
+  const warn = document.getElementById('lm-dup-warn');
+  if(!warn) return;
+  const doi = document.getElementById('lm-doi')?.value.trim();
+  if(doi) return; // DOI가 있으면 DOI로만 체크
+  const dup = title.trim().length > 4 ? _libFindDup('', title) : null;
+  warn.textContent = dup ? `⚠ 이미 등록된 논문이에요: "${dup.title}"` : '';
+}
+
+function _libFindDup(doi, title){
+  if(doi){
+    return libState.papers.find(p => p.id !== _libModalPaperId && p.doi && p.doi.trim().toLowerCase() === doi.trim().toLowerCase());
+  }
+  return libState.papers.find(p => p.id !== _libModalPaperId && p.title && p.title.trim().toLowerCase() === (title||'').trim().toLowerCase());
+}
+
 async function libModalFetchDOI(){
   const doi=document.getElementById('lm-doi')?.value.trim();
   if(!doi) return;
+  const dup = _libFindDup(doi, '');
+  if(dup){
+    showToast(`이미 등록된 논문이에요 — "${dup.title||'(제목 없음)'}"`, 5000);
+    const warn = document.getElementById('lm-dup-warn');
+    if(warn) warn.textContent = `⚠ 이미 등록됨: ${dup.title||'(제목 없음)'}`;
+    return;
+  }
   showToast('DOI 검색 중…');
   const meta=await fetchDOIMetadata(doi);
   if(!meta){ showToast('DOI를 찾을 수 없어요. 직접 입력해주세요.'); return; }
@@ -7730,6 +7757,17 @@ function _lmPdfSelected(input){
 async function saveLibraryPaperFromModal(paperId){
   const title=document.getElementById('lm-title')?.value.trim();
   if(!title){ showToast('제목을 입력해주세요'); return; }
+  if(!paperId){
+    const doi=document.getElementById('lm-doi')?.value.trim();
+    const dup = _libFindDup(doi, title);
+    if(dup){
+      showToast(`이미 등록된 논문이에요 — "${dup.title||'(제목 없음)'}"`);
+      closeModal();
+      libState.selectedPaperId = dup.id;
+      renderLibraryDetail(dup.id);
+      return;
+    }
+  }
   const baseEl = document.getElementById('lm-base-el')?.value.trim() || '';
   const unit = document.getElementById('lm-comps')?.dataset.unit || 'wt%';
   const others = Array.from(document.querySelectorAll('.lib-comp-edit-row')).map(r=>({
