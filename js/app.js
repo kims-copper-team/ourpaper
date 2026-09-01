@@ -7870,10 +7870,9 @@ async function _pdfSetLayout(layout){
 
 function _pdfZoom(delta){
   pdfState.zoom = Math.min(3.0, Math.max(0.3, parseFloat((pdfState.zoom + delta).toFixed(2))));
-  const panel = document.getElementById('pdf-pages-panel');
-  if(panel) panel.style.zoom = pdfState.zoom;
   const label = document.getElementById('pdf-zoom-label');
   if(label) label.textContent = Math.round(pdfState.zoom * 100) + '%';
+  if(pdfState.pdfDoc) _pdfRenderAllPages();
 }
 
 async function _pdfRenderAllPages(){
@@ -7901,7 +7900,7 @@ async function _pdfRenderAllPages(){
 async function _pdfRenderPage(pn){
   if(!pdfState.pdfDoc) return;
   const page = await pdfState.pdfDoc.getPage(pn);
-  const vp = page.getViewport({scale: pdfState.scale});
+  const vp = page.getViewport({scale: pdfState.scale * pdfState.zoom});
   const cv = document.getElementById(`pdf-cv-${pn}`);
   const tl = document.getElementById(`pdf-tl-${pn}`);
   const hl = document.getElementById(`pdf-hl-${pn}`);
@@ -8007,7 +8006,7 @@ async function _pdfAddHighlight(color){
   _renderPdfAnnList();
 
   const page = await pdfState.pdfDoc.getPage(s.pn);
-  const vp = page.getViewport({scale:pdfState.scale});
+  const vp = page.getViewport({scale:pdfState.scale * pdfState.zoom});
   _pdfDrawHighlights(s.pn, vp);
   setTimeout(()=>_pdfScrollToAnn(data.id), 150);
 }
@@ -8067,7 +8066,7 @@ async function _pdfDeleteAnn(annId, pn){
   _renderPdfAnnList();
   if(pdfState.pdfDoc){
     const page = await pdfState.pdfDoc.getPage(pn);
-    const vp = page.getViewport({scale:pdfState.scale});
+    const vp = page.getViewport({scale:pdfState.scale * pdfState.zoom});
     _pdfDrawHighlights(pn, vp);
   }
 }
