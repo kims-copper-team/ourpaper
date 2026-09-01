@@ -7207,6 +7207,28 @@ let libState = {
   chartXAxis: 'conductivity', chartYAxis: 'hardness', loaded: false
 };
 
+function _libNormalizeDp(dp){
+  if(dp && dp.props) return dp;
+  const props = {};
+  if(dp.conductivity != null) props['전기전도도 (%IACS)'] = dp.conductivity;
+  if(dp.hardness != null) props['경도 (HV)'] = dp.hardness;
+  if(dp.strength != null) props['강도 (MPa)'] = dp.strength;
+  return { label: dp.label||'', props };
+}
+function _libGetAllPropKeys(papers){
+  const keys = new Set();
+  (papers||[]).forEach(p => (p.data_points||[]).forEach(dp =>
+    Object.keys(dp.props||{}).forEach(k => keys.add(k))
+  ));
+  return Array.from(keys);
+}
+function _libGetPapersWithData(){
+  return libState.papers.filter(p=>(p.data_points||[]).some(dp=>{
+    const pr = dp.props||{};
+    return pr[libState.chartXAxis]!=null && pr[libState.chartYAxis]!=null;
+  }));
+}
+
 async function getLibraryPapers(){
   const { data, error } = await window.sb.from('library_papers')
     .select('*, library_paper_groups(group_id)')
@@ -7216,7 +7238,7 @@ async function getLibraryPapers(){
     ...p,
     groupIds: (p.library_paper_groups||[]).map(g => g.group_id),
     authors_json: p.authors_json||[], compositions: p.compositions||[],
-    data_points: p.data_points||[], alloy_systems: p.alloy_systems||[]
+    data_points: (p.data_points||[]).map(_libNormalizeDp), alloy_systems: p.alloy_systems||[]
   }));
 }
 async function insertLibraryPaper(paper){
@@ -7380,7 +7402,10 @@ function renderLibraryDetail(paperId){
   const cd = _libGetCompData(paper);
   const hasComps = cd.base || cd.others.length > 0;
   const dps = paper.data_points||[];
-  const papersWithData = libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null));
+  const allPropKeys = _libGetAllPropKeys(libState.papers);
+  if(allPropKeys.length && !allPropKeys.includes(libState.chartXAxis)) libState.chartXAxis = allPropKeys[0];
+  if(allPropKeys.length && !allPropKeys.includes(libState.chartYAxis)) libState.chartYAxis = allPropKeys[1]||allPropKeys[0];
+  const papersWithData = _libGetPapersWithData();
 
   detailEl.innerHTML = `
   <div class="lib-detail-inner">
@@ -7441,12 +7466,13 @@ function renderLibraryDetail(paperId){
 
     <div class="lib-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div class="lib-section-label" style="margin:0;">데이터 포인트 (전기전도도 · 경도 · 강도)</div>
+        <div class="lib-section-label" style="margin:0;">데이터 포인트</div>
         <button class="btn secondary small" onclick="openDataPointsModal('${paperId}')">편집</button>
       </div>
-      ${dps.length?`<table class="lib-dp-table"><thead><tr><th>Label</th><th>전기전도도 (%IACS)</th><th>경도 (HV)</th><th>강도 (MPa)</th></tr></thead>
-      <tbody>${dps.map(dp=>`<tr><td>${escapeHtml(dp.label||'')}</td><td>${dp.conductivity!=null?dp.conductivity:'-'}</td><td>${dp.hardness!=null?dp.hardness:'-'}</td><td>${dp.strength!=null?dp.strength:'-'}</td></tr>`).join('')}</tbody></table>`
-      :`<div style="font-size:12px;color:var(--ink-faint);">데이터 없음 — "편집"을 눌러 추가하세요</div>`}
+      ${(()=>{ const dpKeys=[...new Set(dps.flatMap(dp=>Object.keys(dp.props||{})))];
+        return dps.length?`<div style="overflow-x:auto;"><table class="lib-dp-table"><thead><tr><th>Label</th>${dpKeys.map(k=>`<th>${escapeHtml(k)}</th>`).join('')}</tr></thead>
+        <tbody>${dps.map(dp=>`<tr><td>${escapeHtml(dp.label||'')}</td>${dpKeys.map(k=>`<td>${(dp.props||{})[k]!=null?(dp.props||{})[k]:'-'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+        :`<div style="font-size:12px;color:var(--ink-faint);">데이터 없음 — "편집"을 눌러 추가하세요</div>`; })()}
     </div>
 
     ${papersWithData.length?`<div class="lib-section" style="border-bottom:none;">
@@ -7454,14 +7480,14 @@ function renderLibraryDetail(paperId){
         <div class="lib-section-label" style="margin:0;flex:1;min-width:120px;">물성 맵 (전체 라이브러리)</div>
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:11px;color:var(--ink-faint);">X축</span>
-          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartXAxis=this.value;_renderConductivityChart(libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null)),'${paperId}')">
-            ${['conductivity','hardness','strength'].map(k=>`<option value="${k}" ${libState.chartXAxis===k?'selected':''}>${_libAxisLabel(k)}</option>`).join('')}
+          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartXAxis=this.value;_renderConductivityChart(_libGetPapersWithData(),'${paperId}')">
+            ${allPropKeys.map(k=>`<option value="${escapeHtml(k)}" ${libState.chartXAxis===k?'selected':''}>${escapeHtml(k)}</option>`).join('')}
           </select>
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:11px;color:var(--ink-faint);">Y축</span>
-          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartYAxis=this.value;_renderConductivityChart(libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null)),'${paperId}')">
-            ${['conductivity','hardness','strength'].map(k=>`<option value="${k}" ${libState.chartYAxis===k?'selected':''}>${_libAxisLabel(k)}</option>`).join('')}
+          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartYAxis=this.value;_renderConductivityChart(_libGetPapersWithData(),'${paperId}')">
+            ${allPropKeys.map(k=>`<option value="${escapeHtml(k)}" ${libState.chartYAxis===k?'selected':''}>${escapeHtml(k)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -7473,21 +7499,22 @@ function renderLibraryDetail(paperId){
 
 }
 
-function _libAxisLabel(key){ return key==='conductivity'?'전기전도도 (%IACS)':key==='hardness'?'경도 (HV)':'강도 (MPa)'; }
+function _libAxisLabel(key){ return key; }
 
 function _renderConductivityChart(papers, highlightId){
   const container = document.getElementById('lib-chart-container');
   if(!container) return;
   const xKey = libState.chartXAxis;
   const yKey = libState.chartYAxis;
-  const xLabel = _libAxisLabel(xKey);
-  const yLabel = _libAxisLabel(yKey);
+  const xLabel = xKey;
+  const yLabel = yKey;
   const allPts = [];
   papers.forEach(p => {
     const gc = (() => { if(!(p.groupIds||[]).length) return '#6b7280'; const g=libState.groups.find(x=>x.id===p.groupIds[0]); return g?g.color:'#6b7280'; })();
     (p.data_points||[]).forEach(dp => {
-      if(dp[xKey]!=null && dp[yKey]!=null)
-        allPts.push({ x:dp[xKey], y:dp[yKey], label:dp.label||'', title:p.title||'', color:gc, hi:p.id===highlightId });
+      const pr = dp.props||{};
+      if(pr[xKey]!=null && pr[yKey]!=null)
+        allPts.push({ x:pr[xKey], y:pr[yKey], label:dp.label||'', title:p.title||'', color:gc, hi:p.id===highlightId });
     });
   });
   if(!allPts.length){ container.innerHTML='<div style="padding:20px;color:var(--ink-faint);font-size:12px;text-align:center;">표시할 데이터가 없어요</div>'; return; }
@@ -7772,45 +7799,58 @@ function openDataPointsModal(paperId){
   const paper=libState.papers.find(p=>p.id===paperId);
   if(!paper) return;
   const dps=paper.data_points||[];
+  const existingKeys = _libGetAllPropKeys(libState.papers);
+  const suggestKeys = [...new Set(['전기전도도 (%IACS)','경도 (HV)','강도 (MPa)',...existingKeys])];
+  const datalist = `<datalist id="dp-prop-names">${suggestKeys.map(k=>`<option value="${escapeHtml(k)}">`).join('')}</datalist>`;
   document.getElementById('modal-root').innerHTML=`
   <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-    <div class="modal" style="max-width:580px;max-height:85vh;overflow-y:auto;">
+    <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
       <div class="modal-head"><h3>데이터 포인트 편집</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <div class="modal-body">
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">각 처리 조건별로 전도도(%IACS) · 경도(HV) · 강도(MPa)를 입력하면 맵 차트에 표시됩니다.</p>
-        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 30px;gap:6px;margin-bottom:4px;padding:0 2px;">
-          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">Label</span>
-          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">%IACS</span>
-          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">HV</span>
-          <span style="font-size:11px;color:var(--ink-faint);font-weight:600;">MPa</span>
-          <span></span>
-        </div>
-        <div id="lm-dp-rows">${dps.map((dp,i)=>_libDpRow(dp,i)).join('')}${dps.length===0?_libDpRow({label:'',conductivity:'',hardness:'',strength:''},0):''}</div>
-        <button class="btn secondary small" onclick="libAddDpRow()" style="margin-top:8px;">+ 포인트 추가</button>
+      <div class="modal-body" style="flex:1;overflow-y:auto;">
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">처리 조건(Label)마다 속성 이름과 값을 자유롭게 추가하세요. 추가된 속성은 차트 축으로 선택할 수 있습니다.</p>
+        ${datalist}
+        <div id="lm-dp-rows">${(dps.length?dps:[ {label:'',props:{}} ]).map((dp,i)=>_libDpCard(dp,i)).join('')}</div>
+        <button class="btn secondary small" onclick="libAddDpRow()" style="margin-top:10px;">+ 포인트 추가</button>
       </div>
       <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">취소</button><button class="btn" onclick="saveDpFromModal('${paperId}')">저장</button></div>
     </div>
   </div>`;
 }
-function _libDpRow(dp,i){
-  return `<div class="lib-dp-edit-row">
-    <input type="text" class="lm-dp-label" placeholder="As-cast, 200°C/2h…" value="${escapeHtml(dp.label||'')}">
-    <input type="number" class="lm-dp-cond" placeholder="%IACS" step="0.1" value="${dp.conductivity!=null?dp.conductivity:''}">
-    <input type="number" class="lm-dp-hv" placeholder="HV" step="0.1" value="${dp.hardness!=null?dp.hardness:''}">
-    <input type="number" class="lm-dp-mpa" placeholder="MPa" step="1" value="${dp.strength!=null?dp.strength:''}">
-    <button class="btn secondary small" onclick="this.closest('.lib-dp-edit-row').remove()" style="padding:4px 6px;flex-shrink:0;">✕</button>
+function _libDpPropRow(name, val){
+  return `<div class="lm-dp-prop-row">
+    <input type="text" class="lm-dp-prop-name field-input" list="dp-prop-names" placeholder="속성 이름 (예: 전기전도도 (%IACS))" value="${escapeHtml(String(name||''))}">
+    <input type="number" class="lm-dp-prop-val field-input" placeholder="값" step="any" value="${val!==''&&val!=null?val:''}">
+    <button class="btn secondary small" onclick="this.closest('.lm-dp-prop-row').remove()" style="padding:3px 7px;flex-shrink:0;">✕</button>
   </div>`;
 }
+function _libDpCard(dp, i){
+  const propRows = Object.entries(dp.props||{}).map(([n,v])=>_libDpPropRow(n,v)).join('');
+  return `<div class="lib-dp-card">
+    <div class="lib-dp-card-head">
+      <input type="text" class="lm-dp-label field-input" placeholder="조건 (예: As-cast, 200°C/2h…)" value="${escapeHtml(dp.label||'')}">
+      <button class="btn secondary small" onclick="this.closest('.lib-dp-card').remove()" style="color:var(--brick);flex-shrink:0;">삭제</button>
+    </div>
+    <div class="lm-dp-props">${propRows||_libDpPropRow('','')}</div>
+    <button class="btn secondary small" onclick="_libDpAddProp(this)" style="margin-top:6px;font-size:12px;">+ 속성 추가</button>
+  </div>`;
+}
+function _libDpAddProp(btn){
+  btn.previousElementSibling.insertAdjacentHTML('beforeend', _libDpPropRow('',''));
+}
 function libAddDpRow(){
-  document.getElementById('lm-dp-rows')?.insertAdjacentHTML('beforeend',_libDpRow({label:'',conductivity:'',hardness:'',strength:''},0));
+  document.getElementById('lm-dp-rows')?.insertAdjacentHTML('beforeend', _libDpCard({label:'',props:{}}, 0));
 }
 async function saveDpFromModal(paperId){
-  const data_points=Array.from(document.querySelectorAll('.lib-dp-edit-row')).map(r=>({
-    label:r.querySelector('.lm-dp-label')?.value.trim()||'',
-    conductivity:parseFloat(r.querySelector('.lm-dp-cond')?.value)||null,
-    hardness:parseFloat(r.querySelector('.lm-dp-hv')?.value)||null,
-    strength:parseFloat(r.querySelector('.lm-dp-mpa')?.value)||null
-  })).filter(dp=>dp.conductivity!=null||dp.hardness!=null||dp.strength!=null);
+  const data_points=Array.from(document.querySelectorAll('.lib-dp-card')).map(card=>{
+    const label=card.querySelector('.lm-dp-label')?.value.trim()||'';
+    const props={};
+    card.querySelectorAll('.lm-dp-prop-row').forEach(row=>{
+      const name=row.querySelector('.lm-dp-prop-name')?.value.trim();
+      const val=row.querySelector('.lm-dp-prop-val')?.value;
+      if(name && val!=='' && !isNaN(parseFloat(val))) props[name]=parseFloat(val);
+    });
+    return { label, props };
+  }).filter(dp=>Object.keys(dp.props).length>0);
   closeModal(); showToast('저장 중…');
   const ok=await updateLibraryPaper(paperId,{data_points});
   if(!ok){ showToast('저장 실패'); return; }
