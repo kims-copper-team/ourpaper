@@ -7739,7 +7739,8 @@ async function saveAssignGroups(paperId){
 /* ============== PDF VIEWER ============== */
 let pdfState = {
   pdfDoc: null, totalPages: 0, scale: 1.5,
-  annotations: [], paperId: null, _pendingSel: null
+  annotations: [], paperId: null, _pendingSel: null,
+  layout: 'single', fullscreen: false
 };
 
 function _initPdfJs(){
@@ -7784,7 +7785,12 @@ async function openPdfViewer(paperId){
       <div class="pdf-viewer-modal" onclick="event.stopPropagation()">
         <div class="pdf-viewer-topbar">
           <span class="pdf-viewer-title">${escapeHtml(paper.title||'PDF 뷰어')}</span>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="pdf-layout-toggle">
+              <button id="pdf-btn-single" class="pdf-layout-btn active" onclick="_pdfSetLayout('single')" title="1페이지">▣</button>
+              <button id="pdf-btn-double" class="pdf-layout-btn" onclick="_pdfSetLayout('double')" title="2페이지 나란히">⊞</button>
+            </div>
+            <button class="btn secondary small" id="pdf-fs-btn" onclick="_pdfToggleFullscreen()">전체화면</button>
             <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
             <button class="btn secondary small" onclick="closePdfViewer()">닫기</button>
           </div>
@@ -7840,10 +7846,29 @@ async function openPdfViewer(paperId){
 
 function closePdfViewer(){ document.getElementById('modal-root').innerHTML=''; }
 
+function _pdfToggleFullscreen(){
+  pdfState.fullscreen = !pdfState.fullscreen;
+  const overlay = document.querySelector('.pdf-viewer-overlay');
+  const btn = document.getElementById('pdf-fs-btn');
+  if(overlay) overlay.classList.toggle('pdf-fs', pdfState.fullscreen);
+  if(btn) btn.textContent = pdfState.fullscreen ? '창 모드' : '전체화면';
+}
+
+async function _pdfSetLayout(layout){
+  if(pdfState.layout === layout) return;
+  pdfState.layout = layout;
+  pdfState.scale = layout === 'double' ? 0.9 : 1.5;
+  document.getElementById('pdf-btn-single')?.classList.toggle('active', layout==='single');
+  document.getElementById('pdf-btn-double')?.classList.toggle('active', layout==='double');
+  if(pdfState.pdfDoc) await _pdfRenderAllPages();
+}
+
 async function _pdfRenderAllPages(){
   const panel = document.getElementById('pdf-pages-panel');
   if(!panel || !pdfState.pdfDoc) return;
   panel.innerHTML = '';
+  panel.classList.toggle('two-col', pdfState.layout==='double');
+
   for(let pn=1; pn<=pdfState.totalPages; pn++){
     const wrap = document.createElement('div');
     wrap.className = 'pdf-page-wrap';
