@@ -4939,7 +4939,10 @@ function renderRefManager(project){
         <button class="btn small" onclick="submitReference()">추가</button>
       </div>
     </div>
-  ` : `<button class="btn secondary small" style="margin-bottom:16px;" onclick="showAddReferenceForm()">＋ 참고문헌 추가</button>`;
+  ` : `<div style="display:flex;gap:8px;margin-bottom:16px;">
+    <button class="btn secondary small" onclick="showAddReferenceForm()">＋ 직접 입력</button>
+    <button class="btn secondary small" onclick="openLibImportModal()" style="display:flex;align-items:center;gap:5px;">📚 라이브러리에서 가져오기</button>
+  </div>`;
 
   const citedNums = project ? computeRefCitedNumbers(project) : new Set();
   const totalUncited = refs.filter((r, i) => !citedNums.has(i + 1)).length;
@@ -5054,6 +5057,142 @@ function showAddReferenceForm(){
 function cancelAddReference(){
   refFormOpen = false;
   getProject(state.currentProjectId).then(p => { if(p) renderWorkspace(p); });
+}
+
+/* ---- 라이브러리에서 참고문헌 가져오기 ---- */
+let _libImportGroupFilter = null;
+let _libImportSearch = '';
+
+async function openLibImportModal(){
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-head"><h3>라이브러리에서 참고문헌 가져오기</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div style="padding:12px 18px;border-bottom:1px solid var(--line);flex-shrink:0;" id="lib-import-filter-bar">
+        <div style="color:var(--ink-faint);font-size:13px;text-align:center;">불러오는 중…</div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:12px 18px;" id="lib-import-list">
+        <div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:32px;">불러오는 중…</div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+        <span id="lib-import-sel-count" style="font-size:13px;color:var(--ink-soft);">선택된 논문 없음</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary small" onclick="closeModal()">취소</button>
+          <button class="btn small" id="lib-import-btn" onclick="_doLibImport()" disabled>가져오기</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  if(!libState.loaded){
+    const [papers, groups] = await Promise.all([getLibraryPapers(), getLibraryGroups()]);
+    libState.papers = papers; libState.groups = groups; libState.loaded = true;
+  }
+  _libImportGroupFilter = null;
+  _libImportSearch = '';
+  _renderLibImportModal();
+}
+
+function _renderLibImportModal(){
+  const filterBar = document.getElementById('lib-import-filter-bar');
+  const listEl = document.getElementById('lib-import-list');
+  if(!filterBar || !listEl) return;
+
+  // group chips
+  const groupChips = [
+    `<button class="lib-import-chip${_libImportGroupFilter===null?' active':''}" onclick="_libImportSetGroup(null)">전체</button>`,
+    ...libState.groups.map(g =>
+      `<button class="lib-import-chip${_libImportGroupFilter===g.id?' active':''}" style="${_libImportGroupFilter===g.id?`background:${g.color};border-color:${g.color};color:#fff;`:`border-color:${g.color};color:${g.color};`}" onclick="_libImportSetGroup('${g.id}')">${escapeHtml(g.name)}</button>`
+    )
+  ].join('');
+
+  filterBar.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${groupChips}</div>
+    <input type="text" class="field-input" placeholder="제목, 저자, 저널 검색…" style="width:100%;box-sizing:border-box;font-size:13px;"
+      value="${escapeHtml(_libImportSearch)}" oninput="_libImportSearch=this.value;_renderLibImportList()">
+  `;
+
+  _renderLibImportList();
+}
+
+function _renderLibImportList(){
+  const listEl = document.getElementById('lib-import-list');
+  if(!listEl) return;
+
+  let papers = libState.papers;
+  if(_libImportGroupFilter) papers = papers.filter(p => (p.groupIds||[]).includes(_libImportGroupFilter));
+  if(_libImportSearch.trim()){
+    const q = _libImportSearch.toLowerCase();
+    papers = papers.filter(p =>
+      (p.title||'').toLowerCase().includes(q) ||
+      (p.authors_json||[]).join(' ').toLowerCase().includes(q) ||
+      (p.journal||'').toLowerCase().includes(q)
+    );
+  }
+
+  if(!papers.length){
+    listEl.innerHTML = `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:32px;">해당하는 논문이 없어요</div>`;
+    return;
+  }
+
+  // already-added DOIs (avoid duplicates)
+  const existingDois = new Set((state.references||[]).map(r=>r.doi).filter(Boolean));
+
+  listEl.innerHTML = papers.map(p => {
+    const authStr = (p.authors_json||[]).slice(0,3).join(', ') + ((p.authors_json||[]).length>3?', et al.':'');
+    const alreadyAdded = p.doi && existingDois.has(p.doi);
+    const groupColor = (() => { const g=libState.groups.find(x=>(p.groupIds||[]).includes(x.id)); return g?g.color:''; })();
+    return `<label class="lib-import-row${alreadyAdded?' lib-import-added':''}">
+      <input type="checkbox" class="lib-import-chk" value="${p.id}" ${alreadyAdded?'disabled title="이미 추가된 논문"':''} onchange="_libImportUpdateCount()">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:500;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(p.title||'')}">${escapeHtml(p.title||'(제목 없음)')}</div>
+        <div style="font-size:11px;color:var(--ink-faint);">${escapeHtml(authStr)}${p.journal?` · <i>${escapeHtml(p.journal)}</i>`:''}${p.year?` ${p.year}`:''}</div>
+      </div>
+      ${groupColor?`<span style="width:8px;height:8px;border-radius:50%;background:${groupColor};flex-shrink:0;margin-left:6px;"></span>`:''}
+      ${alreadyAdded?`<span style="font-size:11px;color:var(--ink-faint);flex-shrink:0;margin-left:4px;">추가됨</span>`:''}
+    </label>`;
+  }).join('');
+}
+
+function _libImportSetGroup(gid){
+  _libImportGroupFilter = gid;
+  _renderLibImportModal();
+}
+
+function _libImportUpdateCount(){
+  const checked = document.querySelectorAll('.lib-import-chk:checked');
+  const countEl = document.getElementById('lib-import-sel-count');
+  const btn = document.getElementById('lib-import-btn');
+  if(countEl) countEl.textContent = checked.length ? `${checked.length}개 선택됨` : '선택된 논문 없음';
+  if(btn) btn.disabled = checked.length === 0;
+}
+
+async function _doLibImport(){
+  const checked = Array.from(document.querySelectorAll('.lib-import-chk:checked'));
+  if(!checked.length) return;
+
+  const ids = new Set(checked.map(c => c.value));
+  const toImport = libState.papers.filter(p => ids.has(p.id));
+
+  state.references = state.references || [];
+  let added = 0;
+  for(const p of toImport){
+    const authors = (p.authors_json||[]);
+    const authStr = authors.length
+      ? (authors.length > 6
+          ? authors.slice(0,6).join(', ') + ', et al.'
+          : authors.join(', '))
+      : '';
+    const text = [authStr, p.title, p.journal ? (p.journal + (p.year ? ` (${p.year})` : '')) : (p.year||'')]
+      .filter(Boolean).join(', ') + '.';
+    state.references.push({ text, doi: p.doi||'', memo: '', addedAt: Date.now() });
+    added++;
+  }
+
+  closeModal();
+  showToast(`참고문헌 ${added}개를 가져왔습니다`);
+  const project = await getProject(state.currentProjectId);
+  if(project) renderWorkspace(project);
 }
 
 async function submitReference(){

@@ -745,6 +745,16 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .ref-add-form input, .ref-add-form textarea{ width:100%; box-sizing:border-box; border:1px solid var(--line-strong); border-radius:var(--radius); padding:8px 10px; font-family:inherit; font-size:13px; margin-bottom:8px; }
 .ref-add-form textarea{ font-family:'Times New Roman', '맑은 고딕', serif; min-height:60px; resize:vertical; }
 
+/* ---- 라이브러리 가져오기 모달 ---- */
+.lib-import-chip{ background:none; border:1px solid var(--line); border-radius:20px; padding:3px 12px; font-size:12px; cursor:pointer; color:var(--ink-soft); transition:background .15s,color .15s; white-space:nowrap; }
+.lib-import-chip.active{ background:var(--brand); border-color:var(--brand); color:#0F1115; }
+.lib-import-row{ display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+.lib-import-row:last-child{ border-bottom:none; }
+.lib-import-row:hover{ background:var(--hover); border-radius:var(--radius); }
+.lib-import-row input[type=checkbox]{ flex-shrink:0; width:16px; height:16px; accent-color:var(--brand); cursor:pointer; }
+.lib-import-added{ opacity:0.5; cursor:default; }
+.lib-import-added:hover{ background:none; }
+
 /* ---- 수식 토큰 (본문 인라인) ---- */
 .body-eq-token{ display:inline; cursor:pointer; border-radius:3px; padding:0 1px; transition:background .12s; }
 .body-eq-token:hover{ background:var(--stamp-green-bg); outline:1px solid var(--stamp-green); outline-offset:1px; }
