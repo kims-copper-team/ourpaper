@@ -7740,7 +7740,7 @@ async function saveAssignGroups(paperId){
 let pdfState = {
   pdfDoc: null, totalPages: 0, scale: 1.5,
   annotations: [], paperId: null, _pendingSel: null,
-  layout: 'single', fullscreen: false
+  layout: 'single', fullscreen: false, zoom: 1.0
 };
 
 function _initPdfJs(){
@@ -7789,6 +7789,11 @@ async function openPdfViewer(paperId){
             <div class="pdf-layout-toggle">
               <button id="pdf-btn-single" class="pdf-layout-btn active" onclick="_pdfSetLayout('single')" title="1페이지">▣</button>
               <button id="pdf-btn-double" class="pdf-layout-btn" onclick="_pdfSetLayout('double')" title="2페이지 나란히">⊞</button>
+            </div>
+            <div class="pdf-zoom-ctrl">
+              <button class="pdf-zoom-btn" onclick="_pdfZoom(-0.1)" title="축소">−</button>
+              <span id="pdf-zoom-label" class="pdf-zoom-label">100%</span>
+              <button class="pdf-zoom-btn" onclick="_pdfZoom(+0.1)" title="확대">＋</button>
             </div>
             <button class="btn secondary small" id="pdf-fs-btn" onclick="_pdfToggleFullscreen()">전체화면</button>
             <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
@@ -7861,6 +7866,14 @@ async function _pdfSetLayout(layout){
   document.getElementById('pdf-btn-single')?.classList.toggle('active', layout==='single');
   document.getElementById('pdf-btn-double')?.classList.toggle('active', layout==='double');
   if(pdfState.pdfDoc) await _pdfRenderAllPages();
+}
+
+function _pdfZoom(delta){
+  pdfState.zoom = Math.min(3.0, Math.max(0.3, parseFloat((pdfState.zoom + delta).toFixed(2))));
+  const panel = document.getElementById('pdf-pages-panel');
+  if(panel) panel.style.zoom = pdfState.zoom;
+  const label = document.getElementById('pdf-zoom-label');
+  if(label) label.textContent = Math.round(pdfState.zoom * 100) + '%';
 }
 
 async function _pdfRenderAllPages(){
