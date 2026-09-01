@@ -7065,7 +7065,7 @@ async function toggleProfileFlag(userId, field, value){
 let libState = {
   papers: [], groups: [], selectedPaperId: null,
   filterGroupId: null, filterAlloy: '', searchQuery: '',
-  chartYAxis: 'hardness', loaded: false
+  chartXAxis: 'conductivity', chartYAxis: 'hardness', loaded: false
 };
 
 async function getLibraryPapers(){
@@ -7241,7 +7241,7 @@ function renderLibraryDetail(paperId){
   const cd = _libGetCompData(paper);
   const hasComps = cd.base || cd.others.length > 0;
   const dps = paper.data_points||[];
-  const papersWithData = libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp.conductivity!=null));
+  const papersWithData = libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null));
 
   detailEl.innerHTML = `
   <div class="lib-detail-inner">
@@ -7311,11 +7311,19 @@ function renderLibraryDetail(paperId){
     </div>
 
     ${papersWithData.length?`<div class="lib-section" style="border-bottom:none;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div class="lib-section-label" style="margin:0;">전기전도도 – 물성 맵 (전체 라이브러리)</div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn secondary small ${libState.chartYAxis==='hardness'?'active':''}" onclick="libState.chartYAxis='hardness';renderLibraryDetail('${paperId}')">경도 (HV)</button>
-          <button class="btn secondary small ${libState.chartYAxis==='strength'?'active':''}" onclick="libState.chartYAxis='strength';renderLibraryDetail('${paperId}')">강도 (MPa)</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="lib-section-label" style="margin:0;flex:1;min-width:120px;">물성 맵 (전체 라이브러리)</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:11px;color:var(--ink-faint);">X축</span>
+          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartXAxis=this.value;_renderConductivityChart(libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null)),'${paperId}')">
+            ${['conductivity','hardness','strength'].map(k=>`<option value="${k}" ${libState.chartXAxis===k?'selected':''}>${_libAxisLabel(k)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:11px;color:var(--ink-faint);">Y축</span>
+          <select class="field-input" style="font-size:12px;padding:3px 6px;height:auto;" onchange="libState.chartYAxis=this.value;_renderConductivityChart(libState.papers.filter(p=>(p.data_points||[]).some(dp=>dp[libState.chartXAxis]!=null&&dp[libState.chartYAxis]!=null)),'${paperId}')">
+            ${['conductivity','hardness','strength'].map(k=>`<option value="${k}" ${libState.chartYAxis===k?'selected':''}>${_libAxisLabel(k)}</option>`).join('')}
+          </select>
         </div>
       </div>
       <div id="lib-chart-container" class="lib-chart-container"></div>
@@ -7323,19 +7331,24 @@ function renderLibraryDetail(paperId){
   </div>`;
 
   if(papersWithData.length) setTimeout(()=>_renderConductivityChart(papersWithData, paperId), 0);
+
 }
+
+function _libAxisLabel(key){ return key==='conductivity'?'전기전도도 (%IACS)':key==='hardness'?'경도 (HV)':'강도 (MPa)'; }
 
 function _renderConductivityChart(papers, highlightId){
   const container = document.getElementById('lib-chart-container');
   if(!container) return;
+  const xKey = libState.chartXAxis;
   const yKey = libState.chartYAxis;
-  const yLabel = yKey==='hardness'?'경도 (HV)':'강도 (MPa)';
+  const xLabel = _libAxisLabel(xKey);
+  const yLabel = _libAxisLabel(yKey);
   const allPts = [];
   papers.forEach(p => {
     const gc = (() => { if(!(p.groupIds||[]).length) return '#6b7280'; const g=libState.groups.find(x=>x.id===p.groupIds[0]); return g?g.color:'#6b7280'; })();
     (p.data_points||[]).forEach(dp => {
-      if(dp.conductivity!=null && dp[yKey]!=null)
-        allPts.push({ x:dp.conductivity, y:dp[yKey], label:dp.label||'', title:p.title||'', color:gc, hi:p.id===highlightId });
+      if(dp[xKey]!=null && dp[yKey]!=null)
+        allPts.push({ x:dp[xKey], y:dp[yKey], label:dp.label||'', title:p.title||'', color:gc, hi:p.id===highlightId });
     });
   });
   if(!allPts.length){ container.innerHTML='<div style="padding:20px;color:var(--ink-faint);font-size:12px;text-align:center;">표시할 데이터가 없어요</div>'; return; }
@@ -7360,8 +7373,8 @@ function _renderConductivityChart(papers, highlightId){
     const safeTitle=pt.title.replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     const safeLabel=pt.label.replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     return pt.hi
-      ? `<polygon points="${cx},${cy-r*1.3} ${cx+r*1.1},${cy+r*0.7} ${cx-r*1.1},${cy+r*0.7}" fill="${pt.color}" stroke="#fff" stroke-width="1.5" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this,'${escapeHtml(yLabel).replace(/'/g,"&#39;")}')" onmouseleave="_libChartHide()"/>`
-      : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${pt.color}99" stroke="${pt.color}" stroke-width="1" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this,'${escapeHtml(yLabel).replace(/'/g,"&#39;")}')" onmouseleave="_libChartHide()"/>`;
+      ? `<polygon points="${cx},${cy-r*1.3} ${cx+r*1.1},${cy+r*0.7} ${cx-r*1.1},${cy+r*0.7}" fill="${pt.color}" stroke="#fff" stroke-width="1.5" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this)" onmouseleave="_libChartHide()"/>`
+      : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${pt.color}99" stroke="${pt.color}" stroke-width="1" style="cursor:pointer;" data-title="${safeTitle}" data-label="${safeLabel}" data-x="${pt.x}" data-y="${pt.y}" onmouseenter="_libChartTip(this)" onmouseleave="_libChartHide()"/>`;
   }).join('');
   const legend=`<text x="${W-pad.right}" y="${pad.top-6}" text-anchor="end" font-size="10" fill="var(--ink-soft)">▲ 현재 선택 논문</text>`;
 
@@ -7370,18 +7383,18 @@ function _renderConductivityChart(papers, highlightId){
       ${grid}${xlabels}${ylabels}${legend}
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
       <line x1="${pad.left}" y1="${H-pad.bottom}" x2="${W-pad.right}" y2="${H-pad.bottom}" stroke="var(--line-strong)" stroke-width="1.5"/>
-      <text x="${pad.left+(W-pad.left-pad.right)/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">전기전도도 (%IACS)</text>
+      <text x="${pad.left+(W-pad.left-pad.right)/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${xLabel}</text>
       <text transform="rotate(-90)" x="${-(pad.top+(H-pad.top-pad.bottom)/2)}" y="13" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${yLabel}</text>
       ${circles}
     </svg>
     <div id="lib-tip" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;font-size:12px;line-height:1.6;pointer-events:none;box-shadow:var(--shadow-card);max-width:220px;white-space:pre-line;z-index:10;"></div>
   </div>`;
 }
-function _libChartTip(el, yLabel){
+function _libChartTip(el){
   const tip=document.getElementById('lib-tip');
   if(!tip) return;
   tip.style.display='block';
-  tip.innerHTML=`<b>${el.dataset.title}</b>\n${el.dataset.label}\n전기전도도: ${el.dataset.x} %IACS\n${yLabel.split(' ')[0]}: ${el.dataset.y}`;
+  tip.innerHTML=`<b>${el.dataset.title}</b>\n${el.dataset.label}\n${_libAxisLabel(libState.chartXAxis)}: ${el.dataset.x}\n${_libAxisLabel(libState.chartYAxis)}: ${el.dataset.y}`;
 }
 function _libChartHide(){ const t=document.getElementById('lib-tip'); if(t) t.style.display='none'; }
 
