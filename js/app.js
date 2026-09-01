@@ -7808,7 +7808,7 @@ async function openPdfViewer(paperId){
               <span id="pdf-zoom-label" class="pdf-zoom-label">100%</span>
               <button class="pdf-zoom-btn" onclick="_pdfZoom(+0.1)" title="확대">＋</button>
             </div>
-            <button class="btn secondary small" id="pdf-ann-toggle-btn" onclick="_pdfToggleAnnPanel()" title="메모·번역 패널 열기/닫기">메모 ▶</button>
+            <button class="pdf-ann-open-btn" id="pdf-ann-toggle-btn" onclick="_pdfToggleAnnPanel()" title="메모·번역 패널">📝</button>
             <button class="btn secondary small" id="pdf-fs-btn" onclick="_pdfToggleFullscreen()">전체화면</button>
             <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
             <button class="btn secondary small" onclick="closePdfViewer()">닫기</button>
@@ -7821,7 +7821,8 @@ async function openPdfViewer(paperId){
           <div class="pdf-ann-panel">
             <div class="pdf-ann-panel-header">
               <span style="font-weight:600;font-size:13px;">메모 · 번역</span>
-              <span id="pdf-ann-count" style="font-size:12px;color:var(--ink-faint);"></span>
+              <span id="pdf-ann-count" style="font-size:12px;color:var(--ink-faint);flex:1;"></span>
+              <button class="pdf-ann-close-btn" onclick="_pdfToggleAnnPanel()" title="패널 닫기">✕</button>
             </div>
             <div class="pdf-ann-list" id="pdf-ann-list">
               <div class="pdf-ann-empty">PDF 텍스트를 드래그해서<br>하이라이트를 추가하세요</div>
@@ -7867,10 +7868,8 @@ function closePdfViewer(){ document.getElementById('modal-root').innerHTML=''; }
 
 function _pdfToggleAnnPanel(){
   const panel = document.querySelector('.pdf-ann-panel');
-  const btn = document.getElementById('pdf-ann-toggle-btn');
   if(!panel) return;
-  const hidden = panel.classList.toggle('pdf-ann-hidden');
-  if(btn) btn.textContent = hidden ? '메모 ▶' : '메모 ◀';
+  panel.classList.toggle('pdf-ann-hidden');
 }
 
 function _pdfToggleFullscreen(){
