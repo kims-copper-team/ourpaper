@@ -5126,6 +5126,10 @@ function renderRefManager(project){
   }
 
   const refs = state.references || [];
+  // id 없는 참고문헌(구버전 데이터) 자동 보완
+  let idFixed = false;
+  refs.forEach(r => { if(!r.id){ r.id = 'ref_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); idFixed = true; } });
+  if(idFixed) setReferences(state.currentProjectId, refs);
 
   const addForm = refFormOpen ? `
     <div class="ref-add-form" id="ref-add-form">
@@ -5384,7 +5388,7 @@ async function _doLibImport(){
       : '';
     const text = [authStr, p.title, p.journal ? (p.journal + (p.year ? ` (${p.year})` : '')) : (p.year||'')]
       .filter(Boolean).join(', ') + '.';
-    state.references.push({ text, doi: p.doi||'', memo: '', addedAt: Date.now() });
+    state.references.push({ id: 'ref_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), text, doi: p.doi||'', memo: '', addedAt: Date.now() });
     added++;
   }
 
