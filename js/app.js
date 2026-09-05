@@ -1269,6 +1269,16 @@ function renderManuscriptCanvas(project, isCustom){
       if(eqToken){ openEquationPanel(eqToken); return; }
     });
 
+    contentInput.addEventListener('keydown', (e) => {
+      if(e.key === '[' && !e.ctrlKey && !e.metaKey && !e.altKey){
+        e.preventDefault();
+        _openInlineCitePopup(contentInput);
+      }
+      if(e.key === 'Escape'){
+        closeInlineCitePopup();
+      }
+    });
+
     if(isCustom){
       const labelInput = document.getElementById('sec-label-input-' + sec.key);
       if(labelInput){
@@ -2137,6 +2147,195 @@ async function submitRefInsertPick(){
     }
   }
 }
+
+// ── 인라인 인용 팝업 ([ 입력 시 라이브러리에서 논문 선택 → [N] 삽입) ──────────
+let _inlineCiteSavedRange = null;
+let _inlineCiteSearch = '';
+
+function _openInlineCitePopup(contentInput){
+  closeInlineCitePopup();
+  const sel = window.getSelection();
+  _inlineCiteSavedRange = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+
+  const popup = document.createElement('div');
+  popup.id = 'inline-cite-popup';
+  popup.innerHTML = `
+    <div style="padding:8px 8px 4px;">
+      <input id="inline-cite-search" type="text" placeholder="논문 검색…" autocomplete="off"
+        style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:13px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);color:var(--ink);">
+    </div>
+    <div id="inline-cite-list" style="max-height:260px;overflow-y:auto;"></div>
+  `;
+  document.body.appendChild(popup);
+
+  _inlineCiteSearch = '';
+  _renderInlineCiteList();
+
+  const searchInput = document.getElementById('inline-cite-search');
+  if(searchInput){
+    searchInput.addEventListener('input', (e)=>{
+      _inlineCiteSearch = e.target.value;
+      _renderInlineCiteList();
+    });
+    searchInput.addEventListener('keydown', (e)=>{
+      if(e.key === 'Escape'){ e.stopPropagation(); closeInlineCitePopup(); }
+    });
+    requestAnimationFrame(() => searchInput.focus());
+  }
+
+  _positionInlineCitePopup(popup);
+  setTimeout(() => document.addEventListener('mousedown', _inlineCiteOutsideClick), 0);
+
+  if(!libState.loaded){
+    Promise.all([getLibraryPapers(), getLibraryGroups()]).then(([papers, groups])=>{
+      libState.papers = papers; libState.groups = groups; libState.loaded = true;
+      _renderInlineCiteList();
+    });
+  }
+}
+
+function _positionInlineCitePopup(popup){
+  const popW = 320, popH = 320, gap = 6;
+  const W = window.innerWidth, H = window.innerHeight;
+  let top, left;
+
+  if(_inlineCiteSavedRange){
+    const r = _inlineCiteSavedRange.getBoundingClientRect();
+    top = r.bottom + gap;
+    left = r.left;
+  } else {
+    top = H / 2 - popH / 2;
+    left = W / 2 - popW / 2;
+  }
+
+  if(left + popW > W - 8) left = W - popW - 8;
+  if(left < 8) left = 8;
+  if(top + popH > H - 8) top = (_inlineCiteSavedRange ? _inlineCiteSavedRange.getBoundingClientRect().top - popH - gap : H/2 - popH/2);
+  if(top < 8) top = 8;
+
+  popup.style.cssText = `position:fixed;top:${top}px;left:${left}px;width:${popW}px;z-index:9999;
+    background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 4px 20px rgba(0,0,0,.18);overflow:hidden;`;
+}
+
+function _renderInlineCiteList(){
+  const listEl = document.getElementById('inline-cite-list');
+  if(!listEl) return;
+  const refs = state.references || [];
+  const papers = libState.papers || [];
+  const q = _inlineCiteSearch.trim().toLowerCase();
+
+  let filtered = papers;
+  if(q) filtered = papers.filter(p =>
+    (p.title||'').toLowerCase().includes(q) ||
+    (p.authors_json||[]).some(a=>(a||'').toLowerCase().includes(q)) ||
+    (p.journal||'').toLowerCase().includes(q)
+  );
+
+  if(!filtered.length){
+    listEl.innerHTML = `<div style="color:var(--ink-faint);font-size:13px;text-align:center;padding:24px 8px;">${papers.length?'검색 결과 없음':'라이브러리가 비어 있어요'}</div>`;
+    return;
+  }
+
+  const existingDois = new Set(refs.map(r=>r.doi).filter(Boolean));
+
+  listEl.innerHTML = filtered.map(p => {
+    const inRefs = p.doi ? existingDois.has(p.doi) : refs.some(r => {
+      const pt = (p.title||'').trim().toLowerCase();
+      return pt && r.text && r.text.toLowerCase().includes(pt);
+    });
+    const refNum = inRefs ? (() => {
+      if(p.doi){
+        const idx = refs.findIndex(r=>r.doi===p.doi);
+        return idx >= 0 ? idx+1 : null;
+      }
+      const pt = (p.title||'').trim().toLowerCase();
+      const idx = refs.findIndex(r=>r.text&&r.text.toLowerCase().includes(pt));
+      return idx >= 0 ? idx+1 : null;
+    })() : null;
+    const badgeHtml = refNum ? `<span style="font-size:11px;color:var(--brand);font-weight:600;flex-shrink:0;">[${refNum}]</span>` : '';
+    const authStr = (p.authors_json||[]).slice(0,2).join(', ') + ((p.authors_json||[]).length>2?', …':'');
+    return `<div class="inline-cite-row" onclick="_selectInlineCite('${p.id}')" title="${escapeHtml(p.title||'')}">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.title||'(제목 없음)')}</div>
+        <div style="font-size:11px;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(authStr)}${p.year?` · ${p.year}`:''}</div>
+      </div>
+      ${badgeHtml}
+    </div>`;
+  }).join('');
+}
+
+async function _selectInlineCite(paperId){
+  const paper = (libState.papers||[]).find(p=>p.id===paperId);
+  if(!paper){ closeInlineCitePopup(); return; }
+
+  state.references = state.references || [];
+  const refs = state.references;
+
+  let refIdx = -1;
+  if(paper.doi) refIdx = refs.findIndex(r=>r.doi===paper.doi);
+  if(refIdx < 0){
+    const pt = (paper.title||'').trim().toLowerCase();
+    if(pt) refIdx = refs.findIndex(r=>r.text&&r.text.toLowerCase().includes(pt));
+  }
+
+  if(refIdx < 0){
+    const authors = (paper.authors_json||[]);
+    const authStr = authors.length
+      ? (authors.length>6 ? authors.slice(0,6).join(', ')+', et al.' : authors.join(', '))
+      : '';
+    const text = [authStr, paper.title, paper.journal ? (paper.journal+(paper.year?` (${paper.year})`:'')) : (paper.year||'')]
+      .filter(Boolean).join(', ')+'.';
+    refs.push({ id:'ref_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), text, doi:paper.doi||'', memo:'', addedAt:Date.now() });
+    refIdx = refs.length - 1;
+  }
+
+  const refNum = refIdx + 1;
+  const savedRange = _inlineCiteSavedRange;
+  closeInlineCitePopup();
+
+  const activeEl = state.activeTextareaId && document.getElementById(state.activeTextareaId);
+  if(activeEl && savedRange && activeEl.contains(savedRange.startContainer)){
+    activeEl.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+  }
+
+  insertInlineToken('body-ref-token', `[${refNum}]`);
+
+  const project = state.openProject;
+  if(project){
+    const changed = autoSortRefsByBodyOrder(project, refs);
+    await Promise.all([
+      setReferences(state.currentProjectId, refs),
+      changed ? setProject(project) : Promise.resolve()
+    ]);
+    if(changed) renderWorkspace(project);
+    else {
+      const secKey = state.activeTextareaId ? state.activeTextareaId.replace('sec-content-input-','') : null;
+      if(secKey){
+        const el = document.getElementById(state.activeTextareaId);
+        if(el) setTimeout(()=>_resyncRefTokensAfterBodyEdit(el, secKey, project), 200);
+      }
+    }
+  } else {
+    await setReferences(state.currentProjectId, refs);
+  }
+}
+
+function closeInlineCitePopup(){
+  const p = document.getElementById('inline-cite-popup');
+  if(p) p.remove();
+  document.removeEventListener('mousedown', _inlineCiteOutsideClick);
+}
+
+function _inlineCiteOutsideClick(e){
+  const p = document.getElementById('inline-cite-popup');
+  if(!p){ document.removeEventListener('mousedown', _inlineCiteOutsideClick); return; }
+  if(!p.contains(e.target)){ closeInlineCitePopup(); }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function _pickerOutsideClick(e){
   const p = document.getElementById('inline-insert-picker');
