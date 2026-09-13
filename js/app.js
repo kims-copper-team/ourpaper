@@ -7202,7 +7202,7 @@ function renderAuthScreen(mode){
     <div class="auth-wrap">
       <div class="auth-card">
         <div class="brand">
-          <div><div class="brand-name">논문 투고 워크스페이스</div></div>
+          <div class="brand-logotype">PAPER<span class="brand-cursor">|</span></div>
         </div>
         <h1>${isSignup ? '계정 만들기' : '로그인'}</h1>
         <div id="auth-message"></div>
@@ -7292,7 +7292,7 @@ function renderEmailVerifyScreen(email){
     <div class="auth-wrap">
       <div class="auth-card" style="max-width:440px;text-align:center;">
         <div class="brand" style="justify-content:center;margin-bottom:20px;">
-          <div><div class="brand-name">논문 투고 워크스페이스</div></div>
+          <div class="brand-logotype">PAPER<span class="brand-cursor">|</span></div>
         </div>
         <div style="font-size:48px;margin-bottom:16px;">📬</div>
         <h1 style="font-size:20px;margin:0 0 10px;">이메일을 확인해주세요</h1>
@@ -8543,6 +8543,12 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online', maybeReconnectRealtime);
 
 initSelectionHighlightUI();
+
+// 브라우저 탭 타이틀에서도 커서 깜빡임
+(function initTitleBlink(){
+  let on = true;
+  setInterval(()=>{ document.title = on ? 'PAPER|' : 'PAPER '; on = !on; }, 600);
+})();
 
 (async function initApp(){
   const session = await getSession();

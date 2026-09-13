@@ -52,6 +52,31 @@ button{ font-family:inherit; cursor:pointer; }
 .brand{ display:flex; align-items:center; gap:10px; }
 .brand-name{ font-family:'Times New Roman', '맑은 고딕', serif; font-size:19px; font-weight:600; letter-spacing:0.2px; color:var(--topbar-ink); }
 .brand-sub{ font-size:11px; color:rgba(237,238,240,0.55); font-family:'Courier New', '맑은 고딕', monospace; letter-spacing:0.5px; text-transform:uppercase; }
+
+/* ── PAPERI 로고타입 ── */
+.brand-logotype{
+  font-family: 'Arial', 'Helvetica Neue', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--topbar-ink);
+  text-transform: uppercase;
+  line-height: 1;
+  user-select: none;
+}
+.brand-cursor{
+  display: inline-block;
+  color: #4A90E2;
+  font-weight: 300;
+  margin-left: -1px;
+  animation: blink-cursor 1.1s step-start infinite;
+}
+@keyframes blink-cursor{
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+/* auth 화면의 로고는 조금 더 크게 */
+.auth-card .brand-logotype{ font-size: 26px; letter-spacing: 3px; }
 .topbar-right{ display:flex; align-items:center; gap:16px; }
 nav.tabs{ display:flex; gap:4px; background:rgba(255,255,255,0.06); border:1px solid var(--topbar-line); border-radius:20px; padding:3px; }
 nav.tabs button{
