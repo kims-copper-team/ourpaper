@@ -992,6 +992,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .lib-detail{ background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius); min-height:500px; }
 .lib-detail-empty{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:70px 20px; text-align:center; }
 .lib-detail-inner{ padding:22px 26px; }
+.lib-detail-back{ display:none; }
 .lib-paper-detail-title{ font-size:17px; font-weight:700; line-height:1.4; margin:0; font-family:'Times New Roman','맑은 고딕',serif; }
 .lib-section{ margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid var(--line); }
 .lib-section:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
@@ -1214,13 +1215,19 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 /* ── 모바일 (≤640px) ── */
 @media (max-width: 640px){
   /* ---- 탑바 ---- */
-  .topbar{ padding:10px 16px; gap:8px; }
+  .topbar{ padding:10px 14px; gap:8px; }
   .brand-logotype{ font-size:17px; letter-spacing:1.5px; }
 
-  /* 탭: 숨기고 하단 바로 이동 */
+  /* 탑바 오른쪽: 로그아웃 텍스트 숨기고 아이콘만 */
   nav.tabs{ display:none; }
-  .user-info{ gap:6px; }
-  .user-info .btn.secondary{ padding:5px 10px; font-size:12px; }
+  .user-info{ gap:4px; }
+  .user-info .user-email{ display:none; }
+  .user-info .btn.secondary{ padding:5px 8px; font-size:12px; }
+  /* "로그아웃" 텍스트를 아이콘으로 축약 */
+  .user-info .btn.secondary::before{ content:'↩'; }
+  .user-info .btn.secondary{ font-size:0; } /* 텍스트 숨김 */
+  .user-info .btn.secondary::before{ font-size:15px; }
+  .theme-toggle-btn{ padding:4px 6px; font-size:13px; }
 
   /* ---- 하단 네비게이션 바 ---- */
   .mobile-bottom-nav{
@@ -1231,26 +1238,26 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   .mobile-bottom-nav button{
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:3px; padding:8px 0 10px; background:none; border:none;
-    font-size:10px; color:rgba(237,238,240,0.55); transition:color .15s;
+    font-size:10px; color:rgba(237,238,240,0.55); transition:color .15s; white-space:nowrap;
   }
   .mobile-bottom-nav button .mbn-icon{ font-size:20px; line-height:1; }
   .mobile-bottom-nav button.active{ color:var(--brand); }
 
   /* ---- 메인 패딩 ---- */
-  main{ padding:16px 14px 72px; }
+  main{ padding:14px 12px 72px; }
 
   /* ---- 프로젝트 카드 그리드 ---- */
   .grid-cards{ grid-template-columns:1fr; gap:10px; }
-  .page-head{ margin-bottom:16px; }
+  .page-head{ margin-bottom:14px; }
   .page-head h1{ font-size:20px; }
   .ws-actions{ flex-wrap:wrap; gap:6px; }
-  .ws-actions .btn{ font-size:12px; padding:6px 12px; }
+  .ws-actions .btn{ font-size:12px; padding:6px 12px; white-space:nowrap; }
 
   /* ---- 워크스페이스: TOC 드로어로 전환 ---- */
   .toc{
-    display:none; position:fixed; inset:0 0 0 0; z-index:100;
+    display:none; position:fixed; inset:0; z-index:100;
     border-radius:0; border:none; overflow-y:auto;
-    padding:20px 16px 80px;
+    padding:20px 16px 80px; background:var(--paper-card);
   }
   .toc.mobile-open{ display:block; }
   .toc-mobile-close{
@@ -1261,26 +1268,44 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
     background:none; border:none; font-size:20px; color:var(--ink-faint); padding:4px 8px;
   }
 
-  /* 목차 열기 플로팅 버튼 */
+  /* 목차 열기 FAB — 워크스페이스 화면에서만 JS로 show/hide */
   .toc-mobile-fab{
-    display:flex; position:fixed; bottom:76px; right:16px; z-index:18;
+    display:none; /* JS가 워크스페이스일 때만 flex로 바꿈 */
+    position:fixed; bottom:76px; right:16px; z-index:18;
     width:44px; height:44px; border-radius:50%;
     background:var(--ink); color:var(--paper-card);
     border:none; font-size:18px; align-items:center; justify-content:center;
     box-shadow:0 3px 12px rgba(0,0,0,0.25);
   }
+  .toc-mobile-fab.visible{ display:flex; }
 
   /* 에디터 */
-  .editor-pane{ padding:18px 16px; }
-  .ms-section{ padding:22px 0; }
+  .editor-pane{ padding:16px 14px; }
+  .ms-section{ padding:20px 0; }
   .editor-head h2{ font-size:16px; }
   .ws-title-input{ font-size:20px; }
 
   /* ---- 라이브러리 ---- */
+  .lib-page{ padding:14px 12px; }
+  .lib-toolbar{ flex-direction:column; align-items:stretch; gap:8px; }
+  .lib-toolbar > div{ display:flex; gap:8px; }
+  .lib-toolbar .btn{ white-space:nowrap; flex:1; text-align:center; }
+  .lib-search{ width:100%; }
   .lib-layout{ grid-template-columns:1fr; }
-  .lib-detail-panel{ display:none; }
-  .lib-detail-panel.mobile-open{ display:block; }
-  .lib-sidebar{ border-radius:0; border-left:none; border-right:none; }
+  /* 상세 패널: 모바일에서 기본 숨김, 논문 선택 시 오버레이로 표시 */
+  .lib-detail{
+    display:none; position:fixed; inset:0; z-index:50;
+    overflow-y:auto; background:var(--paper-card);
+    padding:16px 14px 80px;
+    border:none; border-radius:0; min-height:unset;
+  }
+  .lib-detail.mobile-open{ display:block; }
+  /* 상세 패널 상단에 돌아가기 버튼 (JS로 삽입) */
+  .lib-detail-back{
+    display:flex; align-items:center; gap:6px; background:none; border:none;
+    font-size:14px; font-weight:600; color:var(--brand); padding:0 0 14px; cursor:pointer;
+  }
+  .lib-sidebar{ border-radius:var(--radius); }
 
   /* ---- PDF 뷰어 ---- */
   .pdf-viewer-overlay{ padding:0; }

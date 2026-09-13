@@ -456,6 +456,9 @@ function goTab(tab){
   document.querySelectorAll('.mobile-bottom-nav button[data-tab]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
+  // TOC FAB는 워크스페이스 전용 — 다른 탭으로 이동하면 숨김
+  const fab = document.getElementById('toc-mobile-fab');
+  if(fab) fab.classList.remove('visible');
   if(tab==='dashboard') renderDashboard();
   if(tab==='library') renderLibrary();
   if(tab==='guide') renderGuide();
@@ -1022,6 +1025,9 @@ function renderWorkspace(project){
   renderPresenceBar();
   refreshTocPresenceDots();
   applySectionLocks();
+  // 모바일 TOC FAB — 워크스페이스에서만 표시
+  const _fab = document.getElementById('toc-mobile-fab');
+  if(_fab) _fab.classList.add('visible');
 }
 
 function referencesSectionInnerHtml(sec){
@@ -7616,6 +7622,8 @@ function renderLibraryDetail(paperId){
   if(!paper) return;
   const detailEl = document.getElementById('lib-detail');
   if(!detailEl) return;
+  // 모바일: 상세 패널을 오버레이로 열기
+  if(window.innerWidth <= 640) detailEl.classList.add('mobile-open');
   const paperGroups = (paper.groupIds||[]).map(gid=>libState.groups.find(g=>g.id===gid)).filter(Boolean);
   const rawComps = paper.compositions;
   const cd = _libGetCompData(paper);
@@ -7628,6 +7636,7 @@ function renderLibraryDetail(paperId){
 
   detailEl.innerHTML = `
   <div class="lib-detail-inner">
+    <button class="lib-detail-back" onclick="document.getElementById('lib-detail').classList.remove('mobile-open')">← 목록으로</button>
     <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;">
       <h2 class="lib-paper-detail-title" style="flex:1;">${escapeHtml(paper.title||'(제목 없음)')}</h2>
       <div style="display:flex;gap:6px;flex-shrink:0;">
