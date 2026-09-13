@@ -452,6 +452,10 @@ function goTab(tab){
   document.getElementById('tab-library').classList.toggle('active', tab==='library');
   document.getElementById('tab-guide').classList.toggle('active', tab==='guide');
   document.getElementById('tab-admin').classList.toggle('active', tab==='admin');
+  // 하단 모바일 바 동기화
+  document.querySelectorAll('.mobile-bottom-nav button[data-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
   if(tab==='dashboard') renderDashboard();
   if(tab==='library') renderLibrary();
   if(tab==='guide') renderGuide();
@@ -6298,6 +6302,7 @@ function refreshTocOnly(project){
 }
 
 async function selectSection(key){
+  _closeMobileToc();
   // 이미 원고 캔버스가 떠 있으면(이전 화면이 Ledger가 아니었으면) 다시
   // 그리지 않고 그냥 그 섹션으로 스크롤만 한다 — 다른 섹션에서 입력 중이던
   // 포커스/상태를 건드리지 않기 위함.
@@ -6523,6 +6528,7 @@ async function selectComments(){
 }
 
 async function selectReferences(){
+  _closeMobileToc();
   state.currentSectionKey = '__refs__';
   updateMyPresenceSection('__refs__');
   const [project, { references, failed: refFailed }] = await Promise.all([
@@ -7352,6 +7358,7 @@ async function bootAfterAuth(){
     if(!failed){ state.authorDirectory = directory; state.authorDirectoryLoaded = true; }
   });
   showApp();
+  _initMobileUI();
   goTab('dashboard');
 }
 
@@ -8562,6 +8569,65 @@ function toggleTheme(){
   const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   _applyTheme(saved ? saved === 'dark' : prefersDark);
 })();
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 모바일 UI 초기화 ──────────────────────────────────────────────────────────
+function _initMobileUI(){
+  // 하단 네비게이션 바 (모바일 전용 — CSS로 데스크톱에서 숨김)
+  if(!document.getElementById('mobile-bottom-nav')){
+    const nav = document.createElement('nav');
+    nav.id = 'mobile-bottom-nav';
+    nav.className = 'mobile-bottom-nav';
+    nav.innerHTML = `
+      <button data-tab="dashboard" onclick="goTab('dashboard')">
+        <span class="mbn-icon">📄</span>프로젝트
+      </button>
+      <button data-tab="library" onclick="goTab('library')">
+        <span class="mbn-icon">📚</span>라이브러리
+      </button>
+      <button data-tab="guide" onclick="goTab('guide')">
+        <span class="mbn-icon">🗺️</span>가이드
+      </button>
+    `;
+    document.body.appendChild(nav);
+  }
+
+  // TOC 드로어 열기 FAB (워크스페이스에서 모바일용)
+  if(!document.getElementById('toc-mobile-fab')){
+    const fab = document.createElement('button');
+    fab.id = 'toc-mobile-fab';
+    fab.className = 'toc-mobile-fab';
+    fab.title = '목차';
+    fab.innerHTML = '☰';
+    fab.onclick = _openMobileToc;
+    document.body.appendChild(fab);
+  }
+}
+
+function _openMobileToc(){
+  const toc = document.querySelector('.toc');
+  if(!toc) return;
+  // 닫기 버튼 헤더 삽입 (없으면)
+  if(!toc.querySelector('.toc-mobile-close')){
+    const header = document.createElement('div');
+    header.className = 'toc-mobile-close';
+    header.innerHTML = `<span>목차</span><button onclick="_closeMobileToc()">✕</button>`;
+    toc.prepend(header);
+  }
+  toc.classList.add('mobile-open');
+  document.addEventListener('click', _tocOutsideClick, true);
+}
+function _closeMobileToc(){
+  const toc = document.querySelector('.toc');
+  if(toc) toc.classList.remove('mobile-open');
+  document.removeEventListener('click', _tocOutsideClick, true);
+}
+function _tocOutsideClick(e){
+  const toc = document.querySelector('.toc');
+  if(toc && !toc.contains(e.target) && !document.getElementById('toc-mobile-fab').contains(e.target)){
+    _closeMobileToc();
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 브라우저 탭 타이틀에서도 커서 깜빡임
