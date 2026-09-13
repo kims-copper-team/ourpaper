@@ -8544,6 +8544,26 @@ window.addEventListener('online', maybeReconnectRealtime);
 
 initSelectionHighlightUI();
 
+// ── 테마 (라이트 / 다크) ────────────────────────────────────────────────────
+function _applyTheme(dark){
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const btn = document.getElementById('theme-toggle-btn');
+  if(btn) btn.textContent = dark ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = !isDark;
+  _applyTheme(next);
+  try{ localStorage.setItem('paperi-theme', next ? 'dark' : 'light'); }catch(e){}
+}
+(function initTheme(){
+  let saved;
+  try{ saved = localStorage.getItem('paperi-theme'); }catch(e){}
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  _applyTheme(saved ? saved === 'dark' : prefersDark);
+})();
+// ─────────────────────────────────────────────────────────────────────────────
+
 // 브라우저 탭 타이틀에서도 커서 깜빡임
 (function initTitleBlink(){
   let on = true;

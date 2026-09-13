@@ -1108,3 +1108,83 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .pdf-color-btn{ width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; color:white; transition:transform .1s; }
 .pdf-color-btn:hover{ transform:scale(1.2); border-color:rgba(255,255,255,0.5); }
 .pdf-sel-cancel{ background:none; border:none; font-size:12px; color:var(--ink-faint); cursor:pointer; padding:0; }
+
+/* ═══════════════════════════════════════════════════════════
+   DARK MODE — [data-theme="dark"] on <html>
+   평소 화면은 흰색·회색 위주, 파란색(--brand)은 활성 상태만
+   ═══════════════════════════════════════════════════════════ */
+[data-theme="dark"]{
+  --paper:#13151A;
+  --paper-card:#1C1F27;
+  --ink:#E8EAF0;
+  --ink-soft:#9AA3B8;
+  --ink-faint:#5A6175;
+  --line:#252A36;
+  --line-strong:#2E3444;
+  --stamp-green:#2EAB6E;
+  --stamp-green-bg:#0D2E1E;
+  --brand:#3D8EFF;
+  --brand-deep:#5AA3FF;
+  --brand-bg:#0D1F40;
+  --gold:#D4A030;
+  --gold-bg:#2A2009;
+  --brick:#E05046;
+  --brick-bg:#2E100E;
+  --topbar-bg:#0D0F14;
+  --topbar-ink:#EDEEF0;
+  --topbar-line:rgba(255,255,255,0.07);
+  --shadow-card:0 1px 3px rgba(0,0,0,0.25), 0 6px 18px -10px rgba(0,0,0,0.4);
+}
+
+/* 다크 모드에서 흰 배경을 직접 지정한 요소들 재정의 */
+[data-theme="dark"] .modal-overlay{ background:rgba(0,0,0,0.65); }
+[data-theme="dark"] .modal-inner,
+[data-theme="dark"] .auth-card{ background:#1C1F27; border-color:var(--line-strong); }
+[data-theme="dark"] .auth-wrap{ background:var(--topbar-bg); }
+[data-theme="dark"] .auth-card .field input{
+  background:rgba(255,255,255,0.05); border-color:var(--line-strong); color:var(--ink);
+}
+[data-theme="dark"] .auth-card .field input::placeholder{ color:var(--ink-faint); }
+[data-theme="dark"] .topbar{ background:rgba(13,15,20,0.96); }
+[data-theme="dark"] .journal-opt,
+[data-theme="dark"] .index-card,
+[data-theme="dark"] .ref-card,
+[data-theme="dark"] .fig-card,
+[data-theme="dark"] .tbl-card,
+[data-theme="dark"] .author-card,
+[data-theme="dark"] .lib-paper-card,
+[data-theme="dark"] .lib-dp-card{ background:var(--paper-card); border-color:var(--line); }
+[data-theme="dark"] .field input[type=text],
+[data-theme="dark"] textarea,
+[data-theme="dark"] input[type=text],
+[data-theme="dark"] input[type=number],
+[data-theme="dark"] input[type=email],
+[data-theme="dark"] input[type=password],
+[data-theme="dark"] select{
+  background:var(--paper-card); border-color:var(--line-strong); color:var(--ink);
+}
+[data-theme="dark"] .field-input{ background:var(--paper-card); }
+[data-theme="dark"] .contenteditable-area,
+[data-theme="dark"] [contenteditable="true"]{
+  background:var(--paper-card); color:var(--ink);
+}
+[data-theme="dark"] .editor-body{ background:var(--paper); }
+[data-theme="dark"] .sidebar{ background:var(--paper-card); border-color:var(--line); }
+[data-theme="dark"] .toc{ background:var(--paper-card); }
+[data-theme="dark"] .inline-cite-popup,
+[data-theme="dark"] #inline-insert-picker,
+[data-theme="dark"] .cite-edit-popup,
+[data-theme="dark"] .ic-thread-popup,
+[data-theme="dark"] .notif-panel,
+[data-theme="dark"] .ctb{ background:var(--paper-card); border-color:var(--line-strong); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb{ background:var(--line-strong); }
+[data-theme="dark"] ::-webkit-scrollbar-track{ background:var(--paper); }
+
+/* 다크 모드 테마 토글 버튼 */
+.theme-toggle-btn{
+  background:none; border:1px solid var(--topbar-line); border-radius:var(--radius);
+  color:var(--topbar-ink); font-size:15px; padding:4px 8px; line-height:1;
+  cursor:pointer; transition:border-color .15s;
+  opacity:0.7;
+}
+.theme-toggle-btn:hover{ opacity:1; border-color:rgba(255,255,255,0.25); }
