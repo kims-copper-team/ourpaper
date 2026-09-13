@@ -5395,7 +5395,16 @@ async function _doLibImport(){
   closeModal();
   showToast(`참고문헌 ${added}개를 가져왔습니다`);
   const project = await getProject(state.currentProjectId);
-  if(project) renderWorkspace(project);
+  if(project){
+    const changed = autoSortRefsByBodyOrder(project, state.references);
+    await Promise.all([
+      setReferences(state.currentProjectId, state.references),
+      changed ? setProject(project) : Promise.resolve()
+    ]);
+    renderWorkspace(project);
+  } else {
+    await setReferences(state.currentProjectId, state.references);
+  }
 }
 
 async function submitReference(){
