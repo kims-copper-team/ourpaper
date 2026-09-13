@@ -1,24 +1,27 @@
 :root{
-  --paper:#F5F7F8;
-  --paper-card:#FFFFFF;
-  --ink:#1C1C1C;
-  --ink-soft:#5F6368;
-  --ink-faint:#8A8F98;
-  --line:#E3E6E9;
-  --line-strong:#CDD2D7;
-  --stamp-green:#249361;
-  --stamp-green-bg:#E3F6EC;
-  --brand:#3ECF8E;
-  --brand-bg:#E3FBF0;
-  --gold:#C08A2E;
-  --gold-bg:#FBF1DE;
+  /* ── PAPERI Color System ── */
+  --paper:#F5F7FA;          /* Paper Gray — workspace background */
+  --paper-card:#FFFFFF;     /* Paper White — card/panel background */
+  --ink:#111318;            /* Ink Black — primary text */
+  --ink-soft:#667085;       /* Graphite — secondary text */
+  --ink-faint:#9AA3B2;      /* tertiary text, placeholders */
+  --line:#DDE2EA;           /* Line Gray — borders/dividers */
+  --line-strong:#C5CDD8;    /* stronger border */
+  --stamp-green:#1E8C5A;
+  --stamp-green-bg:#E2F5EC;
+  /* Cursor Blue — the PAPERI brand color; use sparingly on active states only */
+  --brand:#1769FF;          /* Cursor Blue */
+  --brand-deep:#1647D8;     /* Deep Blue — hover/pressed */
+  --brand-bg:#EEF3FF;       /* pale blue tint for brand highlights */
+  --gold:#9B6E1A;
+  --gold-bg:#FBF2DE;
   --brick:#C0392B;
   --brick-bg:#FBE9E7;
-  --topbar-bg:#111315;
+  --topbar-bg:#111318;      /* Ink Black topbar */
   --topbar-ink:#EDEEF0;
   --topbar-line:rgba(255,255,255,0.08);
   --radius:6px;
-  --shadow-card:0 1px 2px rgba(16,24,32,0.04), 0 6px 16px -10px rgba(16,24,32,0.14);
+  --shadow-card:0 1px 3px rgba(17,19,24,0.05), 0 6px 18px -10px rgba(17,19,24,0.12);
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -66,7 +69,7 @@ button{ font-family:inherit; cursor:pointer; }
 }
 .brand-cursor{
   display: inline-block;
-  color: #4A90E2;
+  color: #1769FF;
   font-weight: 300;
   margin-left: -1px;
   animation: blink-cursor 1.1s step-start infinite;
@@ -83,7 +86,7 @@ nav.tabs button{
   border:none; background:transparent; padding:7px 16px; border-radius:16px;
   font-size:13.5px; font-weight:500; color:rgba(237,238,240,0.7); transition:background .15s, color .15s;
 }
-nav.tabs button.active{ background:var(--brand); color:#0F1115; }
+nav.tabs button.active{ background:var(--brand); color:#fff; }
 .user-info{ display:flex; align-items:center; gap:10px; font-size:12.5px; color:rgba(237,238,240,0.75); }
 .user-info .user-email{ font-family:'Courier New', '맑은 고딕', monospace; }
 .user-info .admin-badge{ font-size:10px; font-weight:700; color:var(--brand); border:1px solid var(--brand); border-radius:8px; padding:1px 7px; letter-spacing:0.3px; }
@@ -109,12 +112,12 @@ nav.tabs button.active{ background:var(--brand); color:#0F1115; }
 .auth-card .field input:focus{ outline:none; border-color:var(--brand); background:rgba(255,255,255,0.09); }
 .auth-card .btn{
   width:100%; margin-top:6px; padding:11px; font-size:14px;
-  background:var(--brand); border-color:var(--brand); color:#0F1115; font-weight:700;
+  background:var(--brand); border-color:var(--brand); color:#fff; font-weight:700;
 }
 .auth-card .btn:hover{ filter:brightness(1.05); }
 .auth-card .btn:disabled{ opacity:0.5; }
 .auth-error{ background:rgba(192,57,43,0.18); color:#F3897E; border-radius:var(--radius); padding:10px 12px; font-size:12.5px; margin-bottom:14px; line-height:1.5; }
-.auth-notice{ background:rgba(62,207,142,0.15); color:var(--brand); border-radius:var(--radius); padding:10px 12px; font-size:12.5px; margin-bottom:14px; line-height:1.5; }
+.auth-notice{ background:rgba(23,105,255,0.12); color:var(--brand); border-radius:var(--radius); padding:10px 12px; font-size:12.5px; margin-bottom:14px; line-height:1.5; }
 .auth-switch{ text-align:center; margin-top:18px; font-size:12.5px; color:rgba(237,238,240,0.6); }
 .auth-switch a{ color:var(--brand); cursor:pointer; text-decoration:underline; }
 
@@ -434,7 +437,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   font-family:'맑은 고딕','Times New Roman',sans-serif;
   transition:background .1s, color .1s;
 }
-.ctb-btn:hover{ background:var(--brand); color:#fff; }
+.ctb-btn:hover{ background:var(--brand-deep); color:#fff; }
 .ctb-sep{ width:1px; height:14px; background:var(--line); margin:0 1px; }
 
 .select-highlight-btn{
@@ -772,7 +775,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 
 /* ---- 라이브러리 가져오기 모달 ---- */
 .lib-import-chip{ background:none; border:1px solid var(--line); border-radius:20px; padding:3px 12px; font-size:12px; cursor:pointer; color:var(--ink-soft); transition:background .15s,color .15s; white-space:nowrap; }
-.lib-import-chip.active{ background:var(--brand); border-color:var(--brand); color:#0F1115; }
+.lib-import-chip.active{ background:var(--brand); border-color:var(--brand); color:#fff; }
 .lib-import-row{ display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
 .lib-import-row:last-child{ border-bottom:none; }
 .lib-import-row:hover{ background:var(--hover); border-radius:var(--radius); }
@@ -977,7 +980,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 .lib-filter-label{ font-size:10.5px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:7px; }
 .lib-filter-options{ display:flex; flex-wrap:wrap; gap:4px; }
 .lib-filter-btn{ padding:3px 10px; border:1px solid var(--line); border-radius:12px; font-size:12px; background:transparent; color:var(--ink-soft); cursor:pointer; transition:all .15s; }
-.lib-filter-btn.active{ background:var(--brand); border-color:var(--brand); color:#0F1115; font-weight:600; }
+.lib-filter-btn.active{ background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600; }
 .lib-list{ overflow-y:auto; max-height:calc(100vh - 310px); }
 .lib-paper-card{ padding:11px 13px; border-bottom:1px solid var(--line); cursor:pointer; transition:background .1s; border-left:3px solid transparent; }
 .lib-paper-card:hover{ background:var(--paper); }
@@ -1010,7 +1013,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 /* Unit toggle */
 .lib-unit-toggle{ display:flex; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
 .lib-unit-btn{ border:none; background:transparent; padding:4px 12px; font-size:12px; font-weight:500; color:var(--ink-soft); cursor:pointer; transition:all .15s; font-family:inherit; }
-.lib-unit-btn.active{ background:var(--brand); color:#0F1115; font-weight:700; }
+.lib-unit-btn.active{ background:var(--brand); color:#fff; font-weight:700; }
 
 /* Base element display */
 .lib-base-display{ margin-top:10px; }
@@ -1055,7 +1058,7 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 /* Layout toggle buttons */
 .pdf-layout-toggle{ display:flex; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
 .pdf-layout-btn{ background:transparent; border:none; padding:4px 9px; font-size:14px; cursor:pointer; color:var(--ink-soft); transition:background .15s; }
-.pdf-layout-btn.active{ background:var(--brand); color:#0F1115; }
+.pdf-layout-btn.active{ background:var(--brand); color:#fff; }
 /* Zoom controls */
 .pdf-zoom-ctrl{ display:flex; align-items:center; gap:2px; border:1px solid var(--line); border-radius:var(--radius); padding:0 4px; }
 .pdf-zoom-btn{ background:none; border:none; cursor:pointer; font-size:18px; line-height:1; padding:2px 6px; color:var(--ink); font-weight:600; transition:color .15s; }
