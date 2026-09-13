@@ -7825,19 +7825,19 @@ function _openPaperModal(paperId){
         <div class="field-row" style="margin-bottom:16px;">
           <label>DOI (자동 채우기)</label>
           <div style="display:flex;gap:8px;">
-            <input type="text" id="lm-doi" style="flex:1;" class="field-input" placeholder="10.1016/j.actamat.2022.118484" value="${escapeHtml(paper?.doi||'')}">
+            <input type="text" id="lm-doi" style="flex:1;" class="field-input" placeholder="" value="${escapeHtml(paper?.doi||'')}">
             <button class="btn secondary small" onclick="libModalFetchDOI()">자동 채우기</button>
           </div>
           <div id="lm-dup-warn" style="color:var(--brick);font-size:12px;margin-top:5px;"></div>
         </div>
-        <div class="field-row"><label>제목 <span style="color:var(--brick)">*</span></label><input type="text" id="lm-title" class="field-input" value="${escapeHtml(paper?.title||'')}" placeholder="논문 제목" oninput="_libCheckTitleDup(this.value)"></div>
-        <div class="field-row"><label>저자 (쉼표 구분)</label><input type="text" id="lm-authors" class="field-input" value="${escapeHtml((paper?.authors_json||[]).join(', '))}" placeholder="Kim, J., Lee, S."></div>
+        <div class="field-row"><label>제목 <span style="color:var(--brick)">*</span></label><input type="text" id="lm-title" class="field-input" value="${escapeHtml(paper?.title||'')}" placeholder="" oninput="_libCheckTitleDup(this.value)"></div>
+        <div class="field-row"><label>저자 (쉼표 구분)</label><input type="text" id="lm-authors" class="field-input" value="${escapeHtml((paper?.authors_json||[]).join(', '))}" placeholder=""></div>
         <div style="display:grid;grid-template-columns:1fr 100px;gap:12px;">
-          <div class="field-row"><label>저널</label><input type="text" id="lm-journal" class="field-input" value="${escapeHtml(paper?.journal||'')}" placeholder="Acta Materialia"></div>
-          <div class="field-row"><label>연도</label><input type="number" id="lm-year" class="field-input" value="${paper?.year||''}" placeholder="2024"></div>
+          <div class="field-row"><label>저널</label><input type="text" id="lm-journal" class="field-input" value="${escapeHtml(paper?.journal||'')}" placeholder=""></div>
+          <div class="field-row"><label>연도</label><input type="number" id="lm-year" class="field-input" value="${paper?.year||''}" placeholder=""></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 110px;gap:12px;">
-          <div class="field-row"><label>합금계 태그 (쉼표 구분)</label><input type="text" id="lm-alloys" class="field-input" value="${escapeHtml((paper?.alloy_systems||[]).join(', '))}" placeholder="Al-Cu, Al-Mg-Si"></div>
+          <div class="field-row"><label>합금계 태그 (쉼표 구분)</label><input type="text" id="lm-alloys" class="field-input" value="${escapeHtml((paper?.alloy_systems||[]).join(', '))}" placeholder=""></div>
           <div class="field-row"><label>중요도</label><select id="lm-imp" class="field-input">${[1,2,3,4,5].map(n=>`<option value="${n}" ${(paper?.importance||3)===n?'selected':''}>${'★'.repeat(n)}</option>`).join('')}</select></div>
         </div>
 
@@ -7876,8 +7876,8 @@ function _openPaperModal(paperId){
           <div id="lm-base-display" class="lib-base-display"></div>
         </div>
 
-        <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="이 논문의 핵심 novelty는…">${escapeHtml(paper?.novelty||'')}</textarea></div>
-        <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="고온 크리프 논의 시, 시효 처리 효과 분석 시…">${escapeHtml(paper?.cite_when||'')}</textarea></div>
+        <div class="field-row"><label>Novelty / 핵심 기여</label><textarea id="lm-novelty" class="field-input" rows="3" placeholder="">${escapeHtml(paper?.novelty||'')}</textarea></div>
+        <div class="field-row"><label>인용 시점</label><textarea id="lm-cite" class="field-input" rows="2" placeholder="">${escapeHtml(paper?.cite_when||'')}</textarea></div>
 
         <div class="field-row">
           <label>PDF 첨부</label>
@@ -7905,8 +7905,8 @@ function _openPaperModal(paperId){
 }
 function _libCompRow(c,i){
   return `<div class="lib-comp-edit-row">
-    <input type="text" class="lib-comp-el-input" placeholder="예: Cu, Zr, Mg" value="${escapeHtml(c.element||'')}" oninput="_libUpdateBase()">
-    <input type="number" class="lib-comp-amt-input" placeholder="0.00" step="0.001" min="0" value="${c.amount!=null?c.amount:''}" oninput="_libUpdateBase()">
+    <input type="text" class="lib-comp-el-input" placeholder="" value="${escapeHtml(c.element||'')}" oninput="_libUpdateBase()">
+    <input type="number" class="lib-comp-amt-input" placeholder="" step="0.001" min="0" value="${c.amount!=null?c.amount:''}" oninput="_libUpdateBase()">
     <button class="btn secondary small" onclick="this.closest('.lib-comp-edit-row').remove();_libUpdateBase()" style="padding:4px 6px;">✕</button>
   </div>`;
 }
