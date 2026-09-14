@@ -447,6 +447,11 @@ function escapeHtml(s){
 /* ============== NAV ============== */
 function goTab(tab){
   leaveProjectRealtime(); // 프로젝트 화면을 벗어나면 실시간 채널도 정리
+  // PPT 키보드 핸들러 정리
+  if(tab !== 'guide' && document._pptKeyHandler){
+    document.removeEventListener('keydown', document._pptKeyHandler);
+    document._pptKeyHandler = null;
+  }
   state.tab = tab;
   document.getElementById('tab-dashboard').classList.toggle('active', tab==='dashboard');
   document.getElementById('tab-library').classList.toggle('active', tab==='library');
@@ -718,85 +723,177 @@ async function duplicateProject(srcId){
   renderDashboard();
 }
 
-/* ============== GUIDE PAGE (PAPERI 사용법) ============== */
+/* ============== GUIDE PAGE (PPT 슬라이드) ============== */
 function renderGuide(){
-  const sections = [
+  if(document._pptKeyHandler){ document.removeEventListener('keydown',document._pptKeyHandler); document._pptKeyHandler=null; }
+
+  const slides = [
+    // 0: Hero
+    { type:'hero' },
+    // 1~6: Feature slides
     {
-      icon:'📄', title:'프로젝트',
+      icon:'📄', accent:'#8B5CF6', title:'프로젝트 관리',
+      tag:'PROJECT',
       items:[
-        {q:'프로젝트 만들기', a:'대시보드에서 <b>+ 새 프로젝트</b> 버튼을 누르면 제목과 저널 템플릿을 선택해 프로젝트를 생성할 수 있어요. Materials 분야 기본 프레임(Introduction → Conclusions) 또는 <b>사용자 정의</b> 구성을 고를 수 있습니다.'},
-        {q:'투고 현황 관리', a:'프로젝트 카드에 있는 현황 배지(작성 중 / 투고 / 심사 중 …)를 클릭하면 투고 현황을 단계별로 업데이트할 수 있어요. 현황 변경 이력도 자동으로 기록됩니다.'},
-        {q:'팀원 초대', a:'프로젝트를 열고 <b>팀원 관리</b> 탭에서 이메일로 공동 저자를 초대할 수 있어요. 초대된 팀원은 실시간으로 함께 편집할 수 있습니다.'},
-      ]
+        {k:'저널 템플릿 선택', d:'Materials 분야 표준 섹션 구조(Abstract → Conclusions)를 골라 시작하거나, 직접 섹션을 구성할 수 있어요.'},
+        {k:'투고 현황 추적', d:'작성 중 → 투고 → 심사 중 → 게재 승인까지 단계별로 업데이트하고, 변경 이력은 자동으로 기록돼요.'},
+        {k:'팀원 초대', d:'이메일로 공동 저자를 초대하면 실시간으로 함께 편집할 수 있어요.'},
+      ],
+      tip:'프로젝트 카드의 현황 배지를 클릭하면 바로 단계를 바꿀 수 있어요.'
     },
     {
-      icon:'✍️', title:'본문 작성',
+      icon:'✍️', accent:'#059669', title:'본문 작성',
+      tag:'EDITOR',
       items:[
-        {q:'섹션 편집', a:'왼쪽 목차에서 섹션을 클릭하면 해당 섹션 편집기가 열립니다. 내용을 입력하면 <b>자동으로 저장</b>되며, 우측 상단에 단어 수가 실시간으로 표시됩니다.'},
-        {q:'인용 번호 삽입 [ ]', a:'본문 편집 중 <b>[ 키</b>를 누르면 라이브러리 팝업이 열려요. 논문을 검색해 선택하면 [1], [2] 같은 인용 번호가 커서 위치에 자동 삽입되고, 참고문헌 목록에도 자동 추가됩니다. 번호는 본문 등장 순서에 따라 자동 정렬됩니다.'},
-        {q:'그림·표·수식 삽입', a:'편집기 상단 툴바의 <b>그림 / 표 / 수식 Σ</b> 버튼으로 각각 삽입할 수 있어요. Fig. 1, Table 1 번호는 본문 등장 순서대로 자동 부여됩니다.'},
-        {q:'실시간 협업', a:'같은 프로젝트에 접속한 팀원의 아바타가 상단에 표시됩니다. 다른 팀원이 편집 중인 섹션은 잠금 표시로 구분되며, <b>화면 따라가기</b> 기능으로 같은 곳을 함께 볼 수도 있어요.'},
-        {q:'댓글 달기', a:'섹션 제목 옆 말풍선 아이콘을 클릭하거나, 그림·표·참고문헌 카드에서 팀 댓글을 남길 수 있어요. 댓글은 해결됨 처리로 정리할 수 있습니다.'},
-      ]
+        {k:'섹션별 편집 & 자동 저장', d:'왼쪽 목차에서 섹션을 클릭하면 편집기가 열려요. 입력하는 즉시 자동 저장되고 단어 수가 실시간 표시돼요.'},
+        {k:'그림 · 표 · 수식 Σ 삽입', d:'툴바 버튼으로 삽입하면 Fig. / Table 번호가 본문 등장 순서에 따라 자동으로 매겨져요.'},
+        {k:'댓글 & 리뷰', d:'섹션·그림·표마다 댓글 스레드를 달고 해결됨으로 정리할 수 있어요.'},
+      ],
+      tip:'섹션 상단 이탤릭 안내 문구를 클릭하면 직접 편집해서 팀 전용 메모로 바꿀 수 있어요.'
     },
     {
-      icon:'📚', title:'논문 라이브러리',
+      iconHtml:'<span style="font-family:\'Courier New\',monospace;font-size:22px;font-weight:700;color:#1769FF;letter-spacing:-1px;">[ ]</span>',
+      accent:'#1769FF', title:'인용 삽입',
+      tag:'CITATION',
       items:[
-        {q:'논문 추가', a:'<b>+ 논문 추가</b>를 누르고 DOI를 입력한 뒤 <b>자동 채우기</b>를 클릭하면 제목·저자·저널·연도가 자동으로 불러와집니다.'},
-        {q:'그룹 정리', a:'<b>그룹 관리</b>에서 색깔별 그룹(예: 배경 논문, 비교 논문)을 만들고 논문에 태그할 수 있어요. 목록 상단 필터 칩으로 그룹별로 볼 수 있습니다.'},
-        {q:'PDF 첨부', a:'논문 추가·수정 화면에서 PDF 파일을 첨부하면 상세 패널에서 바로 열람할 수 있어요.'},
-        {q:'참고문헌으로 가져오기', a:'라이브러리 상세 패널 하단의 <b>참고문헌에 추가</b> 버튼으로 현재 프로젝트의 참고문헌 목록(Ref Ledger)에 등록할 수 있어요.'},
-        {q:'데이터 포인트 & 차트', a:'논문마다 합금 조성과 물성 데이터(전기전도도, 경도 등)를 기록하면, 라이브러리 상단의 <b>산점도</b>에서 논문들을 한눈에 비교할 수 있어요. X·Y축은 직접 설정합니다.'},
-      ]
+        {k:'[ 키 하나로 팝업', d:'본문 편집 중 <b>[</b> 를 누르면 라이브러리 팝업이 바로 떠요. 논문을 검색해 선택하면 [1] 번호가 커서 위치에 삽입돼요.'},
+        {k:'번호 자동 재정렬', d:'본문 등장 순서에 따라 참고문헌 번호가 자동으로 바뀌어요. 중간에 추가해도 전체가 깔끔하게 정렬돼요.'},
+        {k:'참고문헌 자동 등록', d:'선택한 논문이 아직 참고문헌 목록에 없으면 자동으로 추가돼요.'},
+      ],
+      tip:'Esc 키로 팝업을 닫을 수 있어요.'
     },
     {
-      icon:'📁', title:'Ledger (자료 관리)',
+      icon:'📚', accent:'#D97706', title:'논문 라이브러리',
+      tag:'LIBRARY',
       items:[
-        {q:'참고문헌 Ledger', a:'프로젝트 목차에서 <b>References</b>를 선택하면 참고문헌 목록을 관리할 수 있어요. 직접 추가하거나 라이브러리에서 가져올 수 있고, 삭제 버튼으로 하나씩 제거할 수 있습니다. 번호는 본문 인용 순서에 따라 자동 정렬됩니다.'},
-        {q:'그림 Ledger', a:'<b>Figures</b> 섹션에서 그림 파일을 올리고 캡션을 작성할 수 있어요. 본문에 삽입된 그림은 등장 순서대로 Fig. 번호가 자동으로 매겨집니다.'},
-        {q:'표 Ledger', a:'<b>Tables</b> 섹션에서 표를 직접 만들고 편집할 수 있어요. 열·행 추가/삭제, 캡션 작성이 가능하며 본문 순서에 따라 Table 번호가 자동 부여됩니다.'},
-      ]
+        {k:'DOI 자동 채우기', d:'DOI를 입력하고 자동 채우기를 누르면 CrossRef에서 제목·저자·저널·연도가 자동으로 채워져요.'},
+        {k:'그룹 & 필터', d:'색깔별 그룹을 만들어 논문을 분류하고 필터 칩으로 빠르게 볼 수 있어요.'},
+        {k:'데이터 차트', d:'논문마다 합금 조성과 물성(전기전도도, 경도 등)을 기록하면 산점도로 한눈에 비교할 수 있어요. X·Y축은 자유롭게 설정해요.'},
+        {k:'PDF 첨부', d:'PDF를 첨부해두면 상세 패널에서 바로 열람하고, 프로젝트 참고문헌으로 가져올 수 있어요.'},
+      ],
+      tip:'라이브러리 논문을 현재 프로젝트의 참고문헌으로 바로 가져올 수 있어요.'
     },
     {
-      icon:'⬇️', title:'내보내기',
+      icon:'👥', accent:'#7C3AED', title:'실시간 협업',
+      tag:'COLLAB',
       items:[
-        {q:'Word(.docx) 내보내기', a:'프로젝트 상단 <b>Word 내보내기</b> 버튼을 누르면 본문·그림 캡션·표·참고문헌이 포함된 .docx 파일이 다운로드됩니다. 저널 제출용 원고로 바로 활용할 수 있어요.'},
-      ]
+        {k:'동시 편집', d:'같은 프로젝트에 접속한 팀원 아바타가 상단에 표시돼요. 편집 중인 섹션은 잠금 표시로 구분돼요.'},
+        {k:'화면 따라가기', d:'다른 팀원의 아바타를 클릭하면 그 사람이 보는 화면으로 이동해요. 리뷰할 때 편리해요.'},
+        {k:'알림', d:'팀원 댓글, 투고 현황 변경 등 주요 활동이 🔔 알림 버튼에 실시간으로 모여요.'},
+      ],
+      tip:'편집 도중에도 다른 탭으로 이동하면 작업 내용이 자동 저장돼요.'
     },
     {
-      icon:'🎨', title:'화면 설정',
+      icon:'⬇️', accent:'#0EA5E9', title:'내보내기 & 설정',
+      tag:'EXPORT',
       items:[
-        {q:'다크 모드', a:'우측 상단의 🌙 / ☀️ 버튼으로 라이트·다크 모드를 전환할 수 있어요. 설정은 브라우저에 저장되어 다음 접속 시에도 유지됩니다.'},
-        {q:'모바일', a:'스마트폰에서도 PAPERI를 그대로 사용할 수 있어요. 화면 하단 네비게이션 바로 탭을 전환하고, 프로젝트 편집 중에는 ☰ 버튼으로 목차를 열 수 있습니다.'},
-        {q:'알림', a:'팀원의 댓글, 투고 현황 변경 등 주요 활동이 우측 상단 🔔 알림 버튼에 모입니다.'},
-      ]
+        {k:'Word(.docx) 내보내기', d:'프로젝트 상단 <b>Word 내보내기</b> 버튼으로 본문·그림 캡션·표·참고문헌이 담긴 .docx 파일을 바로 받을 수 있어요.'},
+        {k:'다크 모드 🌙', d:'우측 상단 버튼으로 라이트·다크 모드를 전환해요. 설정은 다음 접속 시에도 유지돼요.'},
+        {k:'모바일 지원', d:'스마트폰에서도 그대로 쓸 수 있어요. 하단 네비게이션 바로 탭 전환, ☰ 버튼으로 목차 열기.'},
+      ],
+      tip:'내보낸 .docx 파일을 Editorial Manager, ScholarOne 등 투고 시스템에 바로 올릴 수 있어요.'
     },
   ];
 
+  const total = slides.length;
+
+  const slideHtml = slides.map((s, i) => {
+    if(s.type === 'hero') return `
+      <div class="ppt-slide ppt-slide-hero">
+        <div class="ppt-hero-bg-lines"></div>
+        <div class="ppt-hero-inner">
+          <div class="brand-logotype" style="font-size:30px;letter-spacing:5px;color:var(--topbar-ink);margin-bottom:6px;">PAPER<span class="brand-cursor">|</span></div>
+          <p class="ppt-hero-sub">논문 연구팀을 위한 통합 워크스페이스</p>
+          <div class="ppt-hero-grid">
+            <div class="ppt-hero-feat">📄<span>프로젝트</span></div>
+            <div class="ppt-hero-feat">✍️<span>본문 작성</span></div>
+            <div class="ppt-hero-feat" style="font-family:monospace;font-weight:700;">[ ]<span>인용 삽입</span></div>
+            <div class="ppt-hero-feat">📚<span>라이브러리</span></div>
+            <div class="ppt-hero-feat">👥<span>실시간 협업</span></div>
+            <div class="ppt-hero-feat">⬇️<span>내보내기</span></div>
+          </div>
+          <button class="ppt-hero-cta" onclick="pptNext()">시작하기 →</button>
+        </div>
+      </div>`;
+
+    return `
+      <div class="ppt-slide" style="--sa:${s.accent}">
+        <div class="ppt-slide-bar"></div>
+        <div class="ppt-slide-head">
+          <div class="ppt-slide-icon-box">${s.iconHtml||s.icon}</div>
+          <div class="ppt-slide-meta">
+            <span class="ppt-slide-tag">${s.tag}</span>
+            <span class="ppt-slide-num">${i} / ${total-1}</span>
+          </div>
+        </div>
+        <h2 class="ppt-slide-title">${s.title}</h2>
+        <div class="ppt-slide-rule"></div>
+        <div class="ppt-items">
+          ${s.items.map(it=>`
+          <div class="ppt-item">
+            <div class="ppt-item-dot"></div>
+            <div class="ppt-item-body"><strong class="ppt-item-k">${it.k}</strong><span class="ppt-item-d"> — ${it.d}</span></div>
+          </div>`).join('')}
+        </div>
+        ${s.tip?`<div class="ppt-tip">💡 ${s.tip}</div>`:''}
+      </div>`;
+  }).join('');
+
+  const dotsHtml = slides.map((_,i)=>`<button class="ppt-dot${i===0?' active':''}" onclick="pptGo(${i})" aria-label="${i+1}번 슬라이드"></button>`).join('');
+
   const main = document.getElementById('main-content');
   main.innerHTML = `
-  <div class="page-head">
-    <div class="brand-logotype" style="font-size:26px;letter-spacing:3px;margin-bottom:10px;">PAPER<span class="brand-cursor">|</span></div>
-    <h1 style="margin:0 0 6px;">사용법 가이드</h1>
-    <p style="margin:0;color:var(--ink-soft);font-size:14px;">논문 작성부터 투고까지, PAPERI 기능을 한눈에 확인하세요.</p>
-  </div>
-  <div class="guide-manual">
-    ${sections.map(sec=>`
-    <div class="gm-section">
-      <div class="gm-section-head">
-        <span class="gm-icon">${sec.icon}</span>
-        <h2 class="gm-title">${sec.title}</h2>
-      </div>
-      <div class="gm-items">
-        ${sec.items.map(item=>`
-        <div class="gm-item">
-          <div class="gm-q">${item.q}</div>
-          <div class="gm-a">${item.a}</div>
-        </div>`).join('')}
-      </div>
-    </div>`).join('')}
+  <div class="ppt-deck">
+    <div class="ppt-prog-wrap"><div class="ppt-prog-bar" id="ppt-prog-bar" style="width:${100/total}%"></div></div>
+    <div class="ppt-slides-wrap">
+      <div class="ppt-slides" id="ppt-slides">${slideHtml}</div>
+    </div>
+    <div class="ppt-controls">
+      <button class="ppt-nav-btn" id="ppt-prev" onclick="pptPrev()" disabled aria-label="이전">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="ppt-dots" id="ppt-dots">${dotsHtml}</div>
+      <button class="ppt-nav-btn" id="ppt-next" onclick="pptNext()" aria-label="다음">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <p class="ppt-hint">← → 키 또는 스와이프로 넘길 수 있어요</p>
   </div>`;
+
+  window._pptIdx = 0;
+  window._pptTotal = total;
+
+  // Touch swipe
+  let _tsx = 0;
+  const sw = document.getElementById('ppt-slides');
+  sw.addEventListener('touchstart', e=>{ _tsx=e.touches[0].clientX; },{passive:true});
+  sw.addEventListener('touchend', e=>{ const dx=e.changedTouches[0].clientX-_tsx; if(Math.abs(dx)>40) dx<0?pptNext():pptPrev(); },{passive:true});
+
+  // Keyboard
+  document._pptKeyHandler = e=>{
+    if(!document.getElementById('ppt-slides')) return;
+    if(['ArrowRight','ArrowDown'].includes(e.key)){ e.preventDefault(); pptNext(); }
+    if(['ArrowLeft','ArrowUp'].includes(e.key)){ e.preventDefault(); pptPrev(); }
+  };
+  document.addEventListener('keydown', document._pptKeyHandler);
 }
+
+function pptGo(n){
+  const total = window._pptTotal||1;
+  n = Math.max(0, Math.min(total-1, n));
+  window._pptIdx = n;
+  const sl = document.getElementById('ppt-slides');
+  if(sl) sl.style.transform=`translateX(-${n*100}%)`;
+  const pb = document.getElementById('ppt-prog-bar');
+  if(pb) pb.style.width=`${((n+1)/total)*100}%`;
+  document.querySelectorAll('#ppt-dots .ppt-dot').forEach((d,i)=>d.classList.toggle('active',i===n));
+  const prev=document.getElementById('ppt-prev');
+  const next=document.getElementById('ppt-next');
+  if(prev) prev.disabled=n===0;
+  if(next) next.disabled=n===total-1;
+}
+function pptPrev(){ pptGo((window._pptIdx||0)-1); }
+function pptNext(){ pptGo((window._pptIdx||0)+1); }
 
 /* ============== WORKSPACE ============== */
 function renderWorkspaceLoadError(id){

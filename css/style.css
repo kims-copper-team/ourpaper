@@ -243,35 +243,108 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .btn.danger{ background:var(--brick); border-color:var(--brick); }
 .btn.small{ padding:6px 13px; font-size:12.5px; }
 
-/* ---------- GUIDE PAGE (PAPERI 사용법) ---------- */
-.guide-manual{ display:flex; flex-direction:column; gap:28px; max-width:780px; }
-.gm-section{
-  background:var(--paper-card); border:1px solid var(--line);
-  border-radius:var(--radius); overflow:hidden;
+/* ---------- GUIDE PAGE (PPT Deck) ---------- */
+.ppt-deck{ max-width:760px; margin:0 auto; }
+.ppt-prog-wrap{ height:3px; background:var(--line); border-radius:2px; margin-bottom:18px; overflow:hidden; }
+.ppt-prog-bar{ height:100%; background:var(--brand); border-radius:2px; transition:width .4s ease; }
+.ppt-slides-wrap{ overflow:hidden; border-radius:12px; box-shadow:var(--shadow-card); border:1px solid var(--line); }
+.ppt-slides{ display:flex; transition:transform .38s cubic-bezier(.4,0,.2,1); will-change:transform; }
+
+/* ── 공통 슬라이드 ── */
+.ppt-slide{
+  min-width:100%; background:var(--paper-card);
+  padding:36px 44px 32px; box-sizing:border-box;
+  display:flex; flex-direction:column; position:relative; min-height:440px;
 }
-.gm-section-head{
-  display:flex; align-items:center; gap:10px;
-  padding:14px 20px; border-bottom:1px solid var(--line);
-  background:var(--paper);
+.ppt-slide-bar{
+  position:absolute; top:0; left:0; right:0; height:4px;
+  background:var(--sa, var(--brand));
 }
-.gm-icon{ font-size:18px; line-height:1; }
-.gm-title{ margin:0; font-size:15px; font-weight:700; color:var(--ink); }
-.gm-items{ padding:0; }
-.gm-item{
-  display:grid; grid-template-columns:200px 1fr;
-  gap:0; border-bottom:1px solid var(--line);
+
+/* ── Hero 슬라이드 ── */
+.ppt-slide-hero{
+  background:var(--topbar-bg); min-height:440px;
+  display:flex; align-items:center; justify-content:center;
+  padding:40px 32px; overflow:hidden;
 }
-.gm-item:last-child{ border-bottom:none; }
-.gm-q{
-  padding:14px 20px; font-size:13px; font-weight:600; color:var(--ink);
-  border-right:1px solid var(--line); background:var(--paper);
-  display:flex; align-items:flex-start;
+.ppt-hero-bg-lines{
+  position:absolute; inset:0; pointer-events:none;
+  background:repeating-linear-gradient(
+    -55deg,
+    transparent, transparent 40px,
+    rgba(255,255,255,0.015) 40px, rgba(255,255,255,0.015) 41px
+  );
 }
-.gm-a{
-  padding:14px 20px; font-size:13px; color:var(--ink-soft); line-height:1.7;
+.ppt-hero-inner{ position:relative; display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center; }
+.ppt-hero-sub{ margin:0; font-size:14px; color:rgba(237,238,240,0.55); }
+.ppt-hero-grid{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+  width:100%; max-width:420px; margin-top:4px;
 }
-.gm-a b{ color:var(--ink); font-weight:600; }
-/* 구형 timeline CSS 유지 (혹시 참조하는 코드 없을 경우) */
+.ppt-hero-feat{
+  display:flex; align-items:center; gap:7px;
+  background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+  border-radius:8px; padding:9px 12px; font-size:12.5px;
+  color:rgba(237,238,240,0.8);
+}
+.ppt-hero-cta{
+  padding:10px 32px; background:var(--brand); color:#fff;
+  border:none; border-radius:22px; font-size:14px; font-weight:600;
+  cursor:pointer; margin-top:4px; transition:background .15s, transform .1s;
+}
+.ppt-hero-cta:hover{ background:var(--brand-deep); transform:translateY(-1px); }
+.ppt-hero-cta:active{ transform:translateY(0); }
+
+/* ── 콘텐츠 슬라이드 ── */
+.ppt-slide-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+.ppt-slide-icon-box{
+  width:52px; height:52px; border-radius:12px;
+  background:rgba(0,0,0,0.04); display:flex; align-items:center;
+  justify-content:center; font-size:26px;
+}
+[data-theme="dark"] .ppt-slide-icon-box{ background:rgba(255,255,255,0.06); }
+.ppt-slide-meta{ display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.ppt-slide-tag{
+  font-size:10px; font-weight:700; letter-spacing:1.5px;
+  color:var(--sa, var(--brand)); font-family:'Courier New',monospace;
+}
+.ppt-slide-num{ font-size:11px; color:var(--ink-faint); font-family:'Courier New',monospace; }
+.ppt-slide-title{ margin:0 0 12px; font-size:28px; font-weight:800; color:var(--ink); letter-spacing:-0.5px; line-height:1.15; }
+.ppt-slide-rule{ width:36px; height:3px; background:var(--sa,var(--brand)); border-radius:2px; margin-bottom:22px; }
+.ppt-items{ display:flex; flex-direction:column; gap:14px; flex:1; }
+.ppt-item{ display:flex; gap:12px; align-items:flex-start; }
+.ppt-item-dot{
+  width:8px; height:8px; border-radius:50%; flex-shrink:0;
+  background:var(--sa,var(--brand)); margin-top:7px;
+}
+.ppt-item-k{ font-size:13.5px; font-weight:700; color:var(--ink); }
+.ppt-item-d{ font-size:13.5px; color:var(--ink-soft); line-height:1.65; }
+.ppt-tip{
+  margin-top:18px; padding:10px 14px; border-radius:var(--radius);
+  background:var(--paper); border:1px solid var(--line);
+  font-size:12.5px; color:var(--ink-soft); line-height:1.6;
+}
+
+/* ── 컨트롤 ── */
+.ppt-controls{ display:flex; align-items:center; justify-content:center; gap:14px; margin-top:18px; }
+.ppt-nav-btn{
+  width:38px; height:38px; border-radius:50%;
+  border:1px solid var(--line); background:var(--paper-card);
+  color:var(--ink); cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:background .15s, border-color .15s;
+}
+.ppt-nav-btn:hover:not(:disabled){ background:var(--paper); border-color:var(--line-strong); }
+.ppt-nav-btn:disabled{ opacity:.3; cursor:default; }
+.ppt-dots{ display:flex; gap:7px; align-items:center; }
+.ppt-dot{
+  width:7px; height:7px; border-radius:50%;
+  border:none; background:var(--line-strong);
+  cursor:pointer; padding:0; transition:background .2s, transform .2s;
+}
+.ppt-dot.active{ background:var(--brand); transform:scale(1.55); }
+.ppt-hint{ text-align:center; font-size:11.5px; color:var(--ink-faint); margin:10px 0 0; }
+
+/* ── 구형 timeline 유지 ── */
 .timeline{ position:relative; margin-top:10px; padding-left:6px; }
 .tl-item{ display:flex; gap:18px; padding:20px 0; border-bottom:1px solid var(--line); }
 .tl-item:last-child{ border-bottom:none; }
@@ -1224,8 +1297,6 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 
 /* ── 태블릿 (≤900px) ── */
 @media (max-width: 900px){
-  .gm-item{ grid-template-columns:1fr; }
-  .gm-q{ border-right:none; border-bottom:1px solid var(--line); background:var(--paper); }
   /* 탑바: 이메일 숨김, 여백 축소 */
   .topbar{ padding:14px 20px; }
   .user-info .user-email{ display:none; }
@@ -1360,6 +1431,14 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   /* ---- 플로팅 요소 위치 ---- */
   .edit-request-notif{ width:calc(100% - 24px); }
   .notif-panel{ position:fixed; right:0; left:0; width:100%; top:64px; border-radius:0; max-height:70vh; }
+
+  /* ---- PPT 덱 ---- */
+  .ppt-slide{ padding:24px 20px 20px; min-height:unset; }
+  .ppt-slide-hero{ padding:36px 20px; }
+  .ppt-slide-title{ font-size:22px; }
+  .ppt-hero-grid{ grid-template-columns:repeat(2,1fr); gap:7px; max-width:none; }
+  .ppt-item-k,.ppt-item-d{ font-size:13px; }
+  .ppt-hint{ font-size:11px; }
 
   /* ---- 커서 툴바: 아이콘만 ---- */
   .ctb{ gap:2px; }
