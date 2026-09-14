@@ -730,9 +730,9 @@ function renderGuide(){
   const slides = [
     // 0: Hero
     { type:'hero' },
-    // 1~6: Feature slides
+    // 1~4: PROJECT axis
     {
-      icon:'📄', accent:'#8B5CF6', title:'프로젝트 관리',
+      chapter:'PROJECT', icon:'📄', accent:'#8B5CF6', title:'프로젝트 관리',
       tag:'PROJECT',
       items:[
         {k:'저널 템플릿 선택', d:'Materials 분야 표준 섹션 구조(Abstract → Conclusions)를 골라 시작하거나, 직접 섹션을 구성할 수 있어요.'},
@@ -742,7 +742,7 @@ function renderGuide(){
       tip:'프로젝트 카드의 현황 배지를 클릭하면 바로 단계를 바꿀 수 있어요.'
     },
     {
-      icon:'✍️', accent:'#059669', title:'본문 작성',
+      chapter:'PROJECT', icon:'✍️', accent:'#059669', title:'본문 작성',
       tag:'EDITOR',
       items:[
         {k:'섹션별 편집 & 자동 저장', d:'왼쪽 목차에서 섹션을 클릭하면 편집기가 열려요. 입력하는 즉시 자동 저장되고 단어 수가 실시간 표시돼요.'},
@@ -752,6 +752,7 @@ function renderGuide(){
       tip:'섹션 상단 이탤릭 안내 문구를 클릭하면 직접 편집해서 팀 전용 메모로 바꿀 수 있어요.'
     },
     {
+      chapter:'PROJECT',
       iconHtml:'<span style="font-family:\'Courier New\',monospace;font-size:22px;font-weight:700;color:#1769FF;letter-spacing:-1px;">[ ]</span>',
       accent:'#1769FF', title:'인용 삽입',
       tag:'CITATION',
@@ -763,7 +764,18 @@ function renderGuide(){
       tip:'Esc 키로 팝업을 닫을 수 있어요.'
     },
     {
-      icon:'📚', accent:'#D97706', title:'논문 라이브러리',
+      chapter:'PROJECT', icon:'👥', accent:'#7C3AED', title:'실시간 협업',
+      tag:'COLLAB',
+      items:[
+        {k:'동시 편집', d:'같은 프로젝트에 접속한 팀원 아바타가 상단에 표시돼요. 편집 중인 섹션은 잠금 표시로 구분돼요.'},
+        {k:'화면 따라가기', d:'다른 팀원의 아바타를 클릭하면 그 사람이 보는 화면으로 이동해요. 리뷰할 때 편리해요.'},
+        {k:'알림', d:'팀원 댓글, 투고 현황 변경 등 주요 활동이 🔔 알림 버튼에 실시간으로 모여요.'},
+      ],
+      tip:'편집 도중에도 다른 탭으로 이동하면 작업 내용이 자동 저장돼요.'
+    },
+    // 5~6: LIBRARY axis
+    {
+      chapter:'LIBRARY', icon:'📚', accent:'#D97706', title:'논문 라이브러리',
       tag:'LIBRARY',
       items:[
         {k:'DOI 자동 채우기', d:'DOI를 입력하고 자동 채우기를 누르면 CrossRef에서 제목·저자·저널·연도가 자동으로 채워져요.'},
@@ -774,17 +786,7 @@ function renderGuide(){
       tip:'라이브러리 논문을 현재 프로젝트의 참고문헌으로 바로 가져올 수 있어요.'
     },
     {
-      icon:'👥', accent:'#7C3AED', title:'실시간 협업',
-      tag:'COLLAB',
-      items:[
-        {k:'동시 편집', d:'같은 프로젝트에 접속한 팀원 아바타가 상단에 표시돼요. 편집 중인 섹션은 잠금 표시로 구분돼요.'},
-        {k:'화면 따라가기', d:'다른 팀원의 아바타를 클릭하면 그 사람이 보는 화면으로 이동해요. 리뷰할 때 편리해요.'},
-        {k:'알림', d:'팀원 댓글, 투고 현황 변경 등 주요 활동이 🔔 알림 버튼에 실시간으로 모여요.'},
-      ],
-      tip:'편집 도중에도 다른 탭으로 이동하면 작업 내용이 자동 저장돼요.'
-    },
-    {
-      icon:'⬇️', accent:'#0EA5E9', title:'내보내기 & 설정',
+      chapter:'LIBRARY', icon:'⬇️', accent:'#0EA5E9', title:'내보내기 & 설정',
       tag:'EXPORT',
       items:[
         {k:'Word(.docx) 내보내기', d:'프로젝트 상단 <b>Word 내보내기</b> 버튼으로 본문·그림 캡션·표·참고문헌이 담긴 .docx 파일을 바로 받을 수 있어요.'},
@@ -803,16 +805,42 @@ function renderGuide(){
         <div class="ppt-hero-bg-lines"></div>
         <div class="ppt-hero-inner">
           <div class="brand-logotype" style="font-size:30px;letter-spacing:5px;color:var(--topbar-ink);margin-bottom:6px;">PAPER<span class="brand-cursor">|</span></div>
-          <p class="ppt-hero-sub">논문 연구팀을 위한 통합 워크스페이스</p>
-          <div class="ppt-hero-grid">
-            <div class="ppt-hero-feat" onclick="pptGo(1)" role="button" tabindex="0">📄<span>프로젝트</span></div>
-            <div class="ppt-hero-feat" onclick="pptGo(2)" role="button" tabindex="0">✍️<span>본문 작성</span></div>
-            <div class="ppt-hero-feat" onclick="pptGo(3)" role="button" tabindex="0" style="font-family:monospace;font-weight:700;">[ ]<span>인용 삽입</span></div>
-            <div class="ppt-hero-feat" onclick="pptGo(4)" role="button" tabindex="0">📚<span>라이브러리</span></div>
-            <div class="ppt-hero-feat" onclick="pptGo(5)" role="button" tabindex="0">👥<span>실시간 협업</span></div>
-            <div class="ppt-hero-feat" onclick="pptGo(6)" role="button" tabindex="0">⬇️<span>내보내기</span></div>
+          <p class="ppt-hero-sub">연구팀을 위한 논문 통합 워크스페이스</p>
+          <div class="ppt-hero-pillars">
+            <div class="ppt-pillar" onclick="pptGo(1)" role="button" tabindex="0" style="--pc:#8B5CF6">
+              <div class="ppt-pillar-top">
+                <span class="ppt-pillar-icon">📄</span>
+                <div>
+                  <div class="ppt-pillar-title">프로젝트</div>
+                  <div class="ppt-pillar-sub">논문 쓰기</div>
+                </div>
+              </div>
+              <ul class="ppt-pillar-list">
+                <li>📋 프로젝트 관리</li>
+                <li>✍️ 본문 작성</li>
+                <li><span style="font-family:monospace;font-weight:700;font-size:11px">[ ]</span> 인용 삽입</li>
+                <li>👥 실시간 협업</li>
+              </ul>
+              <div class="ppt-pillar-cta">살펴보기 →</div>
+            </div>
+            <div class="ppt-pillar-divider"></div>
+            <div class="ppt-pillar" onclick="pptGo(5)" role="button" tabindex="0" style="--pc:#D97706">
+              <div class="ppt-pillar-top">
+                <span class="ppt-pillar-icon">📚</span>
+                <div>
+                  <div class="ppt-pillar-title">라이브러리</div>
+                  <div class="ppt-pillar-sub">서지 관리</div>
+                </div>
+              </div>
+              <ul class="ppt-pillar-list">
+                <li>🔍 DOI 자동 채우기</li>
+                <li>🏷️ 그룹 &amp; 필터</li>
+                <li>📊 데이터 차트</li>
+                <li>📎 PDF 첨부</li>
+              </ul>
+              <div class="ppt-pillar-cta">살펴보기 →</div>
+            </div>
           </div>
-          <button class="ppt-hero-cta" onclick="pptNext()">시작하기 →</button>
         </div>
       </div>`;
 
@@ -822,6 +850,7 @@ function renderGuide(){
         <div class="ppt-slide-head">
           <div class="ppt-slide-icon-box">${s.iconHtml||s.icon}</div>
           <div class="ppt-slide-meta">
+            ${s.chapter?`<span class="ppt-slide-chapter">${s.chapter}</span>`:''}
             <span class="ppt-slide-tag">${s.tag}</span>
             <span class="ppt-slide-num">${i} / ${total-1}</span>
           </div>
