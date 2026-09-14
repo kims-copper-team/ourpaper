@@ -858,8 +858,8 @@ function renderGuide(){
               <ul class="ppt-pillar-list">
                 <li>🔍 DOI 자동 채우기</li>
                 <li>🏷️ 색깔 그룹 &amp; 필터</li>
-                <li>📊 합금 데이터 &amp; 산점도</li>
-                <li>📄 PDF 뷰어 &amp; 🌙 다크모드</li>
+                <li>📊 데이터 &amp; 산점도</li>
+                <li>📄 PDF 뷰어 · 🌙 다크모드</li>
                 <li>🔗 참고문헌 연동</li>
               </ul>
               <div class="ppt-pillar-cta">살펴보기 →</div>
