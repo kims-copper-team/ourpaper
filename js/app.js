@@ -943,7 +943,8 @@ function renderGuide(){
     document.addEventListener('click', function _pptOutside(e){
       if(!document.getElementById('ppt-slides')){ document.removeEventListener('click',_pptOutside); return; }
       const w = document.getElementById('ppt-menu-wrap');
-      if(w && !w.contains(e.target)) pptMenuClose();
+      const p = document.getElementById('ppt-menu-panel');
+      if(w && !w.contains(e.target) && p && !p.contains(e.target)) pptMenuClose();
     });
   }, 100);
 }

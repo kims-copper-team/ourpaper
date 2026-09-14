@@ -1496,17 +1496,33 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   .notif-panel{ position:fixed; right:0; left:0; width:100%; top:64px; border-radius:0; max-height:70vh; }
 
   /* ---- PPT 덱 ---- */
-  .ppt-slide{ padding:24px 20px 20px; min-height:unset; }
-  .ppt-viewport{ min-height:calc(100vh - 56px - 48px); padding:12px 0 16px; align-items:flex-start; }
-  .ppt-slide-hero{ padding:28px 16px; }
-  .ppt-slide-title{ font-size:22px; }
+  /* PPT 가이드 모바일 */
+  .ppt-viewport{ min-height:calc(100vh - 56px - 48px); padding:8px 0 12px; align-items:flex-start; }
+  .ppt-deck{ width:100%; }
+  .ppt-slide{ padding:20px 16px 16px; min-height:unset; }
+  .ppt-slide-hero{ padding:22px 14px 18px; }
+  .ppt-slide-head{ margin-bottom:12px; }
+  .ppt-slide-icon-box{ width:42px; height:42px; font-size:21px; border-radius:10px; }
+  .ppt-slide-title{ font-size:20px; margin-bottom:8px; }
+  .ppt-slide-rule{ margin-bottom:14px; }
+  .ppt-items{ gap:10px; }
+  .ppt-item{ gap:8px; }
+  .ppt-item-k{ font-size:13px; }
+  .ppt-item-d{ font-size:12.5px; }
+  .ppt-tip{ margin-top:12px; padding:8px 12px; font-size:12px; line-height:1.55; }
+  /* 히어로 필러 */
   .ppt-hero-pillars{ max-width:none; flex-direction:column; }
   .ppt-pillar-divider{ width:100%; height:1px; }
-  .ppt-pillar{ padding:16px 16px 14px; gap:10px; }
-  .ppt-pillar-list{ flex-direction:row; flex-wrap:wrap; gap:5px 10px; }
-  .ppt-menu-panel{ right:-4px; min-width:180px; }
-  .ppt-item-k,.ppt-item-d{ font-size:13px; }
-  .ppt-hint{ font-size:11px; }
+  .ppt-pillar{ padding:14px 14px 12px; gap:8px; }
+  .ppt-pillar-title{ font-size:15px; }
+  .ppt-pillar-list{ flex-direction:column; gap:5px; }
+  .ppt-pillar-list li{ font-size:12px; }
+  /* 컨트롤 */
+  .ppt-controls{ gap:8px; margin-top:14px; }
+  .ppt-nav-btn{ width:44px; height:44px; }
+  .ppt-dot{ width:10px; height:10px; }
+  .ppt-menu-panel{ position:fixed; bottom:60px; right:8px; left:8px; min-width:unset; }
+  .ppt-hint{ font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---- 커서 툴바: 아이콘만 ---- */
   .ctb{ gap:2px; }
