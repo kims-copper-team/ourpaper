@@ -464,6 +464,7 @@ function goTab(tab){
   // TOC FAB는 워크스페이스 전용 — 다른 탭으로 이동하면 숨김
   const fab = document.getElementById('toc-mobile-fab');
   if(fab) fab.classList.remove('visible');
+  document.getElementById('main-content')?.classList.remove('guide-mode');
   if(tab==='dashboard') renderDashboard();
   if(tab==='library') renderLibrary();
   if(tab==='guide') renderGuide();
@@ -807,7 +808,7 @@ function renderGuide(){
       tip:'산점도에서 데이터 포인트를 클릭하면 해당 논문 상세로 바로 이동해요.'
     },
     {
-      chapter:'LIBRARY', icon:'⚙️', accent:'#6B7280', title:'설정 & 환경',
+      icon:'⚙️', accent:'#6B7280', title:'설정 & 환경',
       tag:'SETTINGS',
       items:[
         {k:'다크 모드 🌙', d:'우측 상단 버튼으로 앱 전체의 라이트·다크 모드를 전환해요. 설정은 다음 접속 시에도 유지돼요.'},
@@ -906,6 +907,7 @@ function renderGuide(){
   })();
 
   const main = document.getElementById('main-content');
+  main.classList.add('guide-mode');
   main.innerHTML = `
   <div class="ppt-viewport">
   <div class="ppt-deck">

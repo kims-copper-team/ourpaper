@@ -285,11 +285,15 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .ppt-hero-cta:hover{ background:var(--brand-deep); transform:translateY(-1px); }
 .ppt-hero-cta:active{ transform:translateY(0); }
 
-/* ── 뷰포트 센터링 ── */
-.ppt-viewport{
-  min-height:calc(100vh - 56px);
+/* ── 가이드 탭 전용: 페이지 스크롤 없이 딱 맞게 ── */
+#main-content.guide-mode{
+  height:calc(100vh - 56px); overflow:hidden;
   display:flex; align-items:center; justify-content:center;
-  padding:24px 20px; box-sizing:border-box;
+}
+.ppt-viewport{
+  width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  padding:24px 20px; box-sizing:border-box; overflow:hidden;
 }
 
 /* ── 두 축 히어로 ── */
@@ -1508,7 +1512,8 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 
   /* ---- PPT 덱 ---- */
   /* PPT 가이드 모바일 */
-  .ppt-viewport{ min-height:calc(100vh - 56px - 48px); padding:8px 0 12px; align-items:flex-start; }
+  #main-content.guide-mode{ height:calc(100vh - 56px - 48px); align-items:flex-start; }
+  .ppt-viewport{ padding:8px 0 12px; align-items:flex-start; overflow-y:auto; }
   .ppt-deck{ width:100%; }
   .ppt-slide{ padding:20px 16px 16px; min-height:unset; }
   .ppt-slide-hero{ padding:22px 14px 18px; }
