@@ -773,7 +773,17 @@ function renderGuide(){
       ],
       tip:'편집 도중에도 다른 탭으로 이동하면 작업 내용이 자동 저장돼요.'
     },
-    // 5~6: LIBRARY axis
+    {
+      chapter:'PROJECT', icon:'⬇️', accent:'#0EA5E9', title:'내보내기',
+      tag:'EXPORT',
+      items:[
+        {k:'Word(.docx) 내보내기', d:'프로젝트 상단 <b>Word 내보내기</b> 버튼으로 본문·그림 캡션·표·참고문헌이 담긴 .docx 파일을 바로 받을 수 있어요.'},
+        {k:'투고 시스템 바로 업로드', d:'내보낸 .docx 파일을 Editorial Manager, ScholarOne 등 투고 시스템에 그대로 올릴 수 있어요.'},
+        {k:'ZIP 일괄 다운로드', d:'원고와 첨부 파일을 묶어 ZIP으로 한 번에 내려받을 수 있어요.'},
+      ],
+      tip:'Word 내보내기는 그림 캡션·표·수식·참고문헌 형식이 자동으로 포함돼요.'
+    },
+    // 6~7: LIBRARY axis
     {
       chapter:'LIBRARY', icon:'📚', accent:'#D97706', title:'논문 라이브러리',
       tag:'LIBRARY',
@@ -786,14 +796,14 @@ function renderGuide(){
       tip:'라이브러리 논문을 현재 프로젝트의 참고문헌으로 바로 가져올 수 있어요.'
     },
     {
-      chapter:'LIBRARY', icon:'⬇️', accent:'#0EA5E9', title:'내보내기 & 설정',
-      tag:'EXPORT',
+      chapter:'LIBRARY', icon:'⚙️', accent:'#6B7280', title:'설정 & 환경',
+      tag:'SETTINGS',
       items:[
-        {k:'Word(.docx) 내보내기', d:'프로젝트 상단 <b>Word 내보내기</b> 버튼으로 본문·그림 캡션·표·참고문헌이 담긴 .docx 파일을 바로 받을 수 있어요.'},
         {k:'다크 모드 🌙', d:'우측 상단 버튼으로 라이트·다크 모드를 전환해요. 설정은 다음 접속 시에도 유지돼요.'},
         {k:'모바일 지원', d:'스마트폰에서도 그대로 쓸 수 있어요. 하단 네비게이션 바로 탭 전환, ☰ 버튼으로 목차 열기.'},
+        {k:'팀 관리', d:'프로젝트별로 팀원 권한을 관리할 수 있어요. 언제든 초대·제거가 가능해요.'},
       ],
-      tip:'내보낸 .docx 파일을 Editorial Manager, ScholarOne 등 투고 시스템에 바로 올릴 수 있어요.'
+      tip:'설정은 브라우저에 자동 저장돼요. 다음에 접속해도 그대로 유지돼요.'
     },
   ];
 
@@ -820,11 +830,12 @@ function renderGuide(){
                 <li>✍️ 본문 작성</li>
                 <li><span style="font-family:monospace;font-weight:700;font-size:11px">[ ]</span> 인용 삽입</li>
                 <li>👥 실시간 협업</li>
+                <li>⬇️ 내보내기</li>
               </ul>
               <div class="ppt-pillar-cta">살펴보기 →</div>
             </div>
             <div class="ppt-pillar-divider"></div>
-            <div class="ppt-pillar" onclick="pptGo(5)" role="button" tabindex="0" style="--pc:#D97706">
+            <div class="ppt-pillar" onclick="pptGo(6)" role="button" tabindex="0" style="--pc:#D97706">
               <div class="ppt-pillar-top">
                 <span class="ppt-pillar-icon">📚</span>
                 <div>
