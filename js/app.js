@@ -8422,7 +8422,7 @@ async function saveAssignGroups(paperId){
 let pdfState = {
   pdfDoc: null, totalPages: 0, scale: 1.5,
   annotations: [], paperId: null, _pendingSel: null,
-  layout: 'single', fullscreen: false, zoom: 1.0
+  layout: 'single', fullscreen: false, zoom: 1.0, darkMode: false
 };
 
 function _initPdfJs(){
@@ -8461,6 +8461,7 @@ async function openPdfViewer(paperId){
   pdfState.pdfDoc = null;
   pdfState.annotations = [];
   pdfState._pendingSel = null;
+  pdfState.darkMode = false;
 
   document.getElementById('modal-root').innerHTML = `
     <div class="pdf-viewer-overlay" onclick="if(event.target===this)closePdfViewer()">
@@ -8477,6 +8478,7 @@ async function openPdfViewer(paperId){
               <span id="pdf-zoom-label" class="pdf-zoom-label">100%</span>
               <button class="pdf-zoom-btn" onclick="_pdfZoom(+0.1)" title="확대">＋</button>
             </div>
+            <button class="pdf-dark-btn" id="pdf-dark-btn" onclick="_pdfToggleDark()" title="다크 모드로 보기">🌙</button>
             <button class="pdf-ann-open-btn" id="pdf-ann-toggle-btn" onclick="_pdfToggleAnnPanel()" title="메모·번역 패널">📝</button>
             <button class="btn secondary small" id="pdf-fs-btn" onclick="_pdfToggleFullscreen()">전체화면</button>
             <button class="btn secondary small" onclick="uploadPaperPdf('${paperId}')">PDF 교체</button>
@@ -8547,6 +8549,18 @@ function _pdfToggleFullscreen(){
   const btn = document.getElementById('pdf-fs-btn');
   if(overlay) overlay.classList.toggle('pdf-fs', pdfState.fullscreen);
   if(btn) btn.textContent = pdfState.fullscreen ? '창 모드' : '전체화면';
+}
+
+function _pdfToggleDark(){
+  pdfState.darkMode = !pdfState.darkMode;
+  const panel = document.getElementById('pdf-pages-panel');
+  const btn = document.getElementById('pdf-dark-btn');
+  if(panel) panel.classList.toggle('pdf-dark', pdfState.darkMode);
+  if(btn){
+    btn.textContent = pdfState.darkMode ? '☀️' : '🌙';
+    btn.classList.toggle('active', pdfState.darkMode);
+    btn.title = pdfState.darkMode ? '라이트 모드로 보기' : '다크 모드로 보기';
+  }
 }
 
 async function _pdfSetLayout(layout){
