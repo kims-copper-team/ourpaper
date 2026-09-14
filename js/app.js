@@ -870,8 +870,21 @@ function renderGuide(){
 
   const dotsHtml = slides.map((_,i)=>`<button class="ppt-dot${i===0?' active':''}" onclick="pptGo(${i})" aria-label="${i+1}번 슬라이드"></button>`).join('');
 
+  // Build slide menu HTML with chapter separators
+  const menuHtml = (()=>{
+    let h = ''; let lastCh = null;
+    slides.forEach((s,i)=>{
+      if(s.chapter && s.chapter !== lastCh){ h+=`<div class="ppt-menu-sep">${s.chapter}</div>`; lastCh=s.chapter; }
+      const icon = s.type==='hero' ? '🏠' : (s.icon||'•');
+      const label = s.type==='hero' ? '소개' : s.title;
+      h+=`<button class="ppt-menu-item" onclick="pptGo(${i});pptMenuClose()"><span class="ppt-menu-item-icon">${icon}</span><span>${label}</span></button>`;
+    });
+    return h;
+  })();
+
   const main = document.getElementById('main-content');
   main.innerHTML = `
+  <div class="ppt-viewport">
   <div class="ppt-deck">
     <div class="ppt-prog-wrap"><div class="ppt-prog-bar" id="ppt-prog-bar" style="width:${100/total}%"></div></div>
     <div class="ppt-slides-wrap">
@@ -885,8 +898,15 @@ function renderGuide(){
       <button class="ppt-nav-btn" id="ppt-next" onclick="pptNext()" aria-label="다음">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
+      <div class="ppt-menu-wrap" id="ppt-menu-wrap">
+        <button class="ppt-nav-btn" onclick="pptMenuToggle()" title="슬라이드 목차" aria-label="슬라이드 목차">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="ppt-menu-panel" id="ppt-menu-panel">${menuHtml}</div>
+      </div>
     </div>
-    <p class="ppt-hint">← → 키 또는 스와이프로 넘길 수 있어요</p>
+    <p class="ppt-hint">← → 키 또는 스와이프 · 목차(☰)로 바로 이동</p>
+  </div>
   </div>`;
 
   window._pptIdx = 0;
@@ -901,10 +921,20 @@ function renderGuide(){
   // Keyboard
   document._pptKeyHandler = e=>{
     if(!document.getElementById('ppt-slides')) return;
-    if(['ArrowRight','ArrowDown'].includes(e.key)){ e.preventDefault(); pptNext(); }
-    if(['ArrowLeft','ArrowUp'].includes(e.key)){ e.preventDefault(); pptPrev(); }
+    if(e.key==='Escape'){ pptMenuClose(); return; }
+    if(['ArrowRight','ArrowDown'].includes(e.key)){ e.preventDefault(); pptMenuClose(); pptNext(); }
+    if(['ArrowLeft','ArrowUp'].includes(e.key)){ e.preventDefault(); pptMenuClose(); pptPrev(); }
   };
   document.addEventListener('keydown', document._pptKeyHandler);
+
+  // Close menu on outside click
+  setTimeout(()=>{
+    document.addEventListener('click', function _pptOutside(e){
+      if(!document.getElementById('ppt-slides')){ document.removeEventListener('click',_pptOutside); return; }
+      const w = document.getElementById('ppt-menu-wrap');
+      if(w && !w.contains(e.target)) pptMenuClose();
+    });
+  }, 100);
 }
 
 function pptGo(n){
@@ -923,6 +953,8 @@ function pptGo(n){
 }
 function pptPrev(){ pptGo((window._pptIdx||0)-1); }
 function pptNext(){ pptGo((window._pptIdx||0)+1); }
+function pptMenuToggle(){ const p=document.getElementById('ppt-menu-panel'); if(p) p.classList.toggle('open'); }
+function pptMenuClose(){ const p=document.getElementById('ppt-menu-panel'); if(p) p.classList.remove('open'); }
 
 /* ============== WORKSPACE ============== */
 function renderWorkspaceLoadError(id){
