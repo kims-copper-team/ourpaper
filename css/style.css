@@ -243,12 +243,40 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .btn.danger{ background:var(--brick); border-color:var(--brick); }
 .btn.small{ padding:6px 13px; font-size:12.5px; }
 
-/* ---------- GUIDE PAGE ---------- */
+/* ---------- GUIDE PAGE (PAPERI 사용법) ---------- */
+.guide-manual{ display:flex; flex-direction:column; gap:28px; max-width:780px; }
+.gm-section{
+  background:var(--paper-card); border:1px solid var(--line);
+  border-radius:var(--radius); overflow:hidden;
+}
+.gm-section-head{
+  display:flex; align-items:center; gap:10px;
+  padding:14px 20px; border-bottom:1px solid var(--line);
+  background:var(--paper);
+}
+.gm-icon{ font-size:18px; line-height:1; }
+.gm-title{ margin:0; font-size:15px; font-weight:700; color:var(--ink); }
+.gm-items{ padding:0; }
+.gm-item{
+  display:grid; grid-template-columns:200px 1fr;
+  gap:0; border-bottom:1px solid var(--line);
+}
+.gm-item:last-child{ border-bottom:none; }
+.gm-q{
+  padding:14px 20px; font-size:13px; font-weight:600; color:var(--ink);
+  border-right:1px solid var(--line); background:var(--paper);
+  display:flex; align-items:flex-start;
+}
+.gm-a{
+  padding:14px 20px; font-size:13px; color:var(--ink-soft); line-height:1.7;
+}
+.gm-a b{ color:var(--ink); font-weight:600; }
+/* 구형 timeline CSS 유지 (혹시 참조하는 코드 없을 경우) */
 .timeline{ position:relative; margin-top:10px; padding-left:6px; }
 .tl-item{ display:flex; gap:18px; padding:20px 0; border-bottom:1px solid var(--line); }
 .tl-item:last-child{ border-bottom:none; }
-.tl-num{ font-family:'Times New Roman', '맑은 고딕', serif; font-style:italic; font-size:26px; color:var(--ink-faint); width:44px; flex-shrink:0; }
-.tl-body h3{ margin:0 0 5px; font-size:16px; font-family:'Times New Roman', '맑은 고딕', serif; font-weight:600; }
+.tl-num{ font-family:'Times New Roman','맑은 고딕',serif; font-style:italic; font-size:26px; color:var(--ink-faint); width:44px; flex-shrink:0; }
+.tl-body h3{ margin:0 0 5px; font-size:16px; font-weight:600; }
 .tl-body p{ margin:0; color:var(--ink-soft); font-size:13.5px; line-height:1.65; max-width:640px; }
 .guide-note{
   margin-top:30px; background:var(--paper-card); border:1px solid var(--line); border-left:4px solid var(--gold);
@@ -1196,6 +1224,8 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
 
 /* ── 태블릿 (≤900px) ── */
 @media (max-width: 900px){
+  .gm-item{ grid-template-columns:1fr; }
+  .gm-q{ border-right:none; border-bottom:1px solid var(--line); background:var(--paper); }
   /* 탑바: 이메일 숨김, 여백 축소 */
   .topbar{ padding:14px 20px; }
   .user-info .user-email{ display:none; }
