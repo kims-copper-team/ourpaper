@@ -244,7 +244,7 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .btn.small{ padding:6px 13px; font-size:12.5px; }
 
 /* ---------- GUIDE PAGE (PPT Deck) ---------- */
-.ppt-deck{ max-width:760px; margin:0 auto; }
+.ppt-deck{ max-width:960px; margin:0 auto; }
 .ppt-prog-wrap{ height:3px; background:var(--line); border-radius:2px; margin-bottom:18px; overflow:hidden; }
 .ppt-prog-bar{ height:100%; background:var(--brand); border-radius:2px; transition:width .4s ease; }
 .ppt-slides-wrap{ overflow:hidden; border-radius:12px; box-shadow:var(--shadow-card); border:1px solid var(--line); }
@@ -253,8 +253,8 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 /* ── 공통 슬라이드 ── */
 .ppt-slide{
   min-width:100%; background:var(--paper-card);
-  padding:36px 44px 32px; box-sizing:border-box;
-  display:flex; flex-direction:column; position:relative; min-height:440px;
+  padding:44px 56px 38px; box-sizing:border-box;
+  display:flex; flex-direction:column; position:relative; min-height:520px;
 }
 .ppt-slide-bar{
   position:absolute; top:0; left:0; right:0; height:4px;
@@ -263,9 +263,9 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 
 /* ── Hero 슬라이드 ── */
 .ppt-slide-hero{
-  background:var(--topbar-bg); min-height:440px;
+  background:var(--topbar-bg); min-height:520px;
   display:flex; align-items:center; justify-content:center;
-  padding:40px 32px; overflow:hidden;
+  padding:48px 40px; overflow:hidden;
 }
 .ppt-hero-bg-lines{
   position:absolute; inset:0; pointer-events:none;
@@ -284,9 +284,11 @@ main{ flex:1; padding:36px 32px 80px; max-width:1180px; margin:0 auto; width:100
 .ppt-hero-feat{
   display:flex; align-items:center; gap:7px;
   background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
-  border-radius:8px; padding:9px 12px; font-size:12.5px;
+  border-radius:8px; padding:11px 14px; font-size:13px;
   color:rgba(237,238,240,0.8);
+  cursor:pointer; transition:background .15s, border-color .15s, transform .1s;
 }
+.ppt-hero-feat:hover{ background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.22); transform:translateY(-2px); }
 .ppt-hero-cta{
   padding:10px 32px; background:var(--brand); color:#fff;
   border:none; border-radius:22px; font-size:14px; font-weight:600;

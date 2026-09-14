@@ -805,12 +805,12 @@ function renderGuide(){
           <div class="brand-logotype" style="font-size:30px;letter-spacing:5px;color:var(--topbar-ink);margin-bottom:6px;">PAPER<span class="brand-cursor">|</span></div>
           <p class="ppt-hero-sub">논문 연구팀을 위한 통합 워크스페이스</p>
           <div class="ppt-hero-grid">
-            <div class="ppt-hero-feat">📄<span>프로젝트</span></div>
-            <div class="ppt-hero-feat">✍️<span>본문 작성</span></div>
-            <div class="ppt-hero-feat" style="font-family:monospace;font-weight:700;">[ ]<span>인용 삽입</span></div>
-            <div class="ppt-hero-feat">📚<span>라이브러리</span></div>
-            <div class="ppt-hero-feat">👥<span>실시간 협업</span></div>
-            <div class="ppt-hero-feat">⬇️<span>내보내기</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(1)" role="button" tabindex="0">📄<span>프로젝트</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(2)" role="button" tabindex="0">✍️<span>본문 작성</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(3)" role="button" tabindex="0" style="font-family:monospace;font-weight:700;">[ ]<span>인용 삽입</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(4)" role="button" tabindex="0">📚<span>라이브러리</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(5)" role="button" tabindex="0">👥<span>실시간 협업</span></div>
+            <div class="ppt-hero-feat" onclick="pptGo(6)" role="button" tabindex="0">⬇️<span>내보내기</span></div>
           </div>
           <button class="ppt-hero-cta" onclick="pptNext()">시작하기 →</button>
         </div>
