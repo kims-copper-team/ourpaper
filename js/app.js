@@ -8517,28 +8517,34 @@ async function _pdfRenderAllPages(){
 async function _pdfRenderPage(pn){
   if(!pdfState.pdfDoc) return;
   const page = await pdfState.pdfDoc.getPage(pn);
-  const vp = page.getViewport({scale: pdfState.scale * pdfState.zoom});
+  const dpr = window.devicePixelRatio || 1;
+  const baseScale = pdfState.scale * pdfState.zoom;
+  const vpHiRes = page.getViewport({scale: baseScale * dpr}); // 캔버스 픽셀: DPR 반영
+  const vpCss   = page.getViewport({scale: baseScale});        // CSS 레이아웃용
+
   const cv = document.getElementById(`pdf-cv-${pn}`);
   const tl = document.getElementById(`pdf-tl-${pn}`);
   const hl = document.getElementById(`pdf-hl-${pn}`);
   const cw = document.getElementById(`pdf-cw-${pn}`);
   if(!cv || !tl) return;
 
-  cv.width = vp.width; cv.height = vp.height;
-  [cw, tl, hl].forEach(el=>{ if(el){ el.style.width=vp.width+'px'; el.style.height=vp.height+'px'; }});
+  // 캔버스는 고해상도로, CSS 크기는 일반 픽셀로
+  cv.width = vpHiRes.width; cv.height = vpHiRes.height;
+  cv.style.width = vpCss.width+'px'; cv.style.height = vpCss.height+'px';
+  [cw, tl, hl].forEach(el=>{ if(el){ el.style.width=vpCss.width+'px'; el.style.height=vpCss.height+'px'; }});
 
-  await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise;
+  await page.render({canvasContext: cv.getContext('2d'), viewport: vpHiRes}).promise;
 
   const tc = await page.getTextContent();
   tl.innerHTML = '';
   try {
-    const r = pdfjsLib.renderTextLayer({textContent:tc, container:tl, viewport:vp, textDivs:[]});
+    const r = pdfjsLib.renderTextLayer({textContent:tc, container:tl, viewport:vpCss, textDivs:[]});
     if(r?.promise) await r.promise;
     else if(r?.render) await r.render();
   } catch(e){ /* some versions differ */ }
 
-  tl.addEventListener('mouseup', e => _pdfOnSelectionUp(e, pn, cw, vp));
-  _pdfDrawHighlights(pn, vp);
+  tl.addEventListener('mouseup', e => _pdfOnSelectionUp(e, pn, cw, vpCss));
+  _pdfDrawHighlights(pn, vpCss);
 }
 
 function _pdfDrawHighlights(pn, vp){
