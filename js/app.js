@@ -58,6 +58,7 @@ let state = {
   currentUser:null, authMode:'signin',
   tab:'dashboard', currentProjectId:null, currentSectionKey:null, saveTimer:null,
   figures:[], figureSaveTimer:null, figuresLoadFailed:false,
+  dataEntries:[], dataEntriesLoadFailed:false,
   references:[], refSaveTimer:null, referencesLoadFailed:false,
   authors:[], authorSaveTimer:null, authorsLoadFailed:false,
   authorDirectory:[], authorDirectoryLoaded:false,
@@ -225,6 +226,12 @@ async function getFigures(projectId){
   return { figures: value || [], failed:false };
 }
 async function setFigures(projectId, figures){ return setProjectColumn(projectId, 'figures', figures); }
+async function getDataEntries(projectId){
+  const { value, failed } = await getProjectColumn(projectId, 'data_entries');
+  if(failed) return { dataEntries: null, failed: true };
+  return { dataEntries: value || [], failed: false };
+}
+async function setDataEntries(projectId, entries){ return setProjectColumn(projectId, 'data_entries', entries); }
 // figures는 이제 projects 행의 컬럼이라, 프로젝트 삭제(cascade) 시 함께 사라진다.
 async function deleteFiguresStorage(){ return true; }
 
@@ -970,6 +977,9 @@ async function openWorkspace(id){
   } else {
     state.tables = tables;
   }
+  const { dataEntries: loadedData, failed: dataFailed } = await getDataEntries(id);
+  state.dataEntriesLoadFailed = dataFailed;
+  state.dataEntries = dataFailed ? [] : (loadedData || []);
   const { owner, members, failed: membersFailed } = await listProjectMembers(id, project.ownerId);
   state.membersLoadFailed = membersFailed;
   state.owner = membersFailed ? null : owner;
