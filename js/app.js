@@ -58,6 +58,7 @@ let state = {
   currentUser:null, authMode:'signin',
   tab:'dashboard', currentProjectId:null, currentSectionKey:null, saveTimer:null,
   figures:[], figureSaveTimer:null, figuresLoadFailed:false,
+  dataMineEntries:[], dataMineLoaded:false,
   references:[], refSaveTimer:null, referencesLoadFailed:false,
   authors:[], authorSaveTimer:null, authorsLoadFailed:false,
   authorDirectory:[], authorDirectoryLoaded:false,
@@ -225,6 +226,40 @@ async function getFigures(projectId){
   return { figures: value || [], failed:false };
 }
 async function setFigures(projectId, figures){ return setProjectColumn(projectId, 'figures', figures); }
+async function fetchDataMineEntries(){
+  try {
+    const { data, error } = await sb.from('data_entries')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if(error) throw error;
+    return { entries: data || [], failed: false };
+  } catch(e){ console.error('fetchDataMineEntries', e); return { entries: [], failed: true }; }
+}
+async function createDataMineEntry(type, title, metadata){
+  try {
+    const { data, error } = await sb.from('data_entries')
+      .insert({ type, title, metadata, owner_id: state.currentUser.id, shared_with: [] })
+      .select().single();
+    if(error) throw error;
+    return { entry: data, failed: false };
+  } catch(e){ console.error('createDataMineEntry', e); return { entry: null, failed: true }; }
+}
+async function updateDataMineEntry(id, updates){
+  try {
+    const { data, error } = await sb.from('data_entries')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id).select().single();
+    if(error) throw error;
+    return { entry: data, failed: false };
+  } catch(e){ console.error('updateDataMineEntry', e); return { entry: null, failed: true }; }
+}
+async function deleteDataMineEntry(id){
+  try {
+    const { error } = await sb.from('data_entries').delete().eq('id', id);
+    if(error) throw error;
+    return { failed: false };
+  } catch(e){ console.error('deleteDataMineEntry', e); return { failed: true }; }
+}
 // figures는 이제 projects 행의 컬럼이라, 프로젝트 삭제(cascade) 시 함께 사라진다.
 async function deleteFiguresStorage(){ return true; }
 
@@ -455,6 +490,7 @@ function goTab(tab){
   state.tab = tab;
   document.getElementById('tab-dashboard').classList.toggle('active', tab==='dashboard');
   document.getElementById('tab-library').classList.toggle('active', tab==='library');
+  document.getElementById('tab-datamine').classList.toggle('active', tab==='datamine');
   document.getElementById('tab-guide').classList.toggle('active', tab==='guide');
   document.getElementById('tab-admin').classList.toggle('active', tab==='admin');
   // 하단 모바일 바 동기화
@@ -467,6 +503,7 @@ function goTab(tab){
   document.getElementById('main-content')?.classList.remove('guide-mode');
   if(tab==='dashboard') renderDashboard();
   if(tab==='library') renderLibrary();
+  if(tab==='datamine') renderDataMine();
   if(tab==='guide') renderGuide();
   if(tab==='admin') renderAdminPanel();
 }
@@ -7767,6 +7804,297 @@ async function fetchDOIMetadata(doi){
   }catch(e){ console.error('CrossRef API 실패:', e); return null; }
 }
 
+/* ============================================================
+   데이터 광산 (Data Mine)
+   ============================================================ */
+const DM_TYPES = {
+  vickers: { label: 'Vickers 경도', icon: '⬡' },
+};
+const HV_LOADS = ['HV0.01','HV0.015','HV0.02','HV0.025','HV0.05','HV0.1','HV0.2','HV0.3','HV0.5','HV1','HV2','HV3','HV5','HV10','HV20','HV30'];
+
+async function renderDataMine(){
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="padding:40px;color:var(--ink-faint);font-size:13px;">데이터 광산을 불러오는 중…</div>`;
+  const { entries, failed } = await fetchDataMineEntries();
+  state.dataMineEntries = failed ? [] : entries;
+  state.dataMineLoaded = true;
+  _renderDataMineLayout();
+}
+
+function _renderDataMineLayout(){
+  const main = document.getElementById('main-content');
+  const entries = state.dataMineEntries || [];
+  const cards = entries.length
+    ? entries.map(e => _dmCard(e)).join('')
+    : '<div class="dm-empty">아직 데이터가 없어요. 첫 데이터를 추가해보세요.</div>';
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>데이터 광산</h1>
+      <button class="btn" onclick="dmShowAddMenu()">+ 데이터 추가</button>
+    </div>
+    <div id="dm-add-menu" style="display:none;"></div>
+    <div class="dm-grid" id="dm-grid">${cards}</div>`;
+}
+
+function _dmCard(e){
+  const type = DM_TYPES[e.type] || { label: e.type, icon: '📊' };
+  const meta = e.metadata || {};
+  const sharedCount = (e.shared_with || []).length;
+  const isOwner = e.owner_id === state.currentUser?.id;
+  let summary = '';
+  if(e.type === 'vickers'){
+    const vals = meta.measurements || [];
+    if(vals.length) summary = `${vals.length}회 측정 · 평균 ${(vals.reduce((a,v)=>a+v,0)/vals.length).toFixed(1)} ${meta.notation||'HV'}`;
+  }
+  return `<div class="dm-card" id="dmc-${e.id}">
+    <div class="dm-card-head">
+      <span class="dm-card-icon">${type.icon}</span>
+      <div class="dm-card-title">${escapeHtml(e.title||'(제목 없음)')}</div>
+      ${isOwner ? `<button class="dm-card-del" onclick="dmDeleteEntry('${e.id}')" title="삭제">×</button>` : ''}
+    </div>
+    <div class="dm-card-type">${type.label}</div>
+    ${summary ? `<div class="dm-card-summary">${escapeHtml(summary)}</div>` : ''}
+    ${meta.specimen ? `<div class="dm-card-meta">시편: ${escapeHtml(meta.specimen)}</div>` : ''}
+    <div class="dm-card-meta">
+      ${sharedCount ? `공유: ${sharedCount}명` : '비공개'}
+    </div>
+    ${e.chart_url ? `<div class="dm-card-chart"><img src="${e.chart_url}" alt="chart" style="max-width:100%;border-radius:4px;"></div>` : ''}
+    <div class="dm-card-actions">
+      ${isOwner ? `<button class="btn small secondary" onclick="dmEditSharing('${e.id}')">공유 설정</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function dmShowAddMenu(){
+  const wrap = document.getElementById('dm-add-menu');
+  if(!wrap) return;
+  if(wrap.style.display !== 'none'){ wrap.style.display='none'; return; }
+  wrap.style.display = 'block';
+  wrap.innerHTML = `<div class="dm-type-picker">
+    ${Object.entries(DM_TYPES).map(([k,v])=>`
+      <button class="dm-type-btn" onclick="dmOpenForm('${k}')">
+        <span style="font-size:22px;">${v.icon}</span>
+        <span>${v.label}</span>
+      </button>`).join('')}
+  </div>`;
+}
+
+let _dmFormType = null;
+let _hvRowCount = 0;
+
+function dmOpenForm(type){
+  document.getElementById('dm-add-menu').style.display = 'none';
+  const main = document.getElementById('main-content');
+  _dmFormType = type;
+  _hvRowCount = 0;
+  let formHtml = '';
+  if(type === 'vickers') formHtml = _renderHvForm();
+  main.innerHTML = `
+    <div class="page-head">
+      <button class="btn secondary small" onclick="renderDataMine()">← 데이터 광산</button>
+      <h1>${DM_TYPES[type]?.label || type} 입력</h1>
+    </div>
+    <div class="dm-form-wrap">${formHtml}</div>`;
+  if(type === 'vickers') _hvAddRow();
+}
+
+function _renderHvForm(){
+  return `<div class="dm-form">
+    <div class="form-row">
+      <label>제목 <span class="req">*</span></label>
+      <input id="hv-title" class="inp" placeholder="예: Cu-Zr 합금 열처리 경도" style="width:100%;">
+    </div>
+    <div class="form-row">
+      <label>시편명</label>
+      <input id="hv-specimen" class="inp" placeholder="예: Cu-1Zr-400°C-1h" style="width:100%;">
+    </div>
+    <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:140px;">
+        <label>하중 (Notation)</label>
+        <select id="hv-notation" class="inp">
+          ${HV_LOADS.map(v=>`<option value="${v}"${v==='HV1'?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1;min-width:140px;">
+        <label>Dwell time (s)</label>
+        <input id="hv-dwell" class="inp" type="number" min="0" value="15" style="width:100%;">
+      </div>
+    </div>
+    <div class="form-row">
+      <label>측정값</label>
+      <table class="hv-table" id="hv-table">
+        <thead><tr><th>#</th><th>경도값</th><th></th></tr></thead>
+        <tbody id="hv-tbody"></tbody>
+      </table>
+      <button class="btn secondary small" style="margin-top:6px;" onclick="_hvAddRow()">+ 행 추가</button>
+    </div>
+    <div class="hv-stats" id="hv-stats"></div>
+    <div class="form-row">
+      <label>메모</label>
+      <textarea id="hv-note" class="inp" rows="2" style="width:100%;resize:vertical;"></textarea>
+    </div>
+    <div style="margin-top:20px;display:flex;gap:10px;">
+      <button class="btn" onclick="dmSaveHv()">저장</button>
+      <button class="btn secondary" onclick="renderDataMine()">취소</button>
+    </div>
+  </div>`;
+}
+
+function _hvAddRow(){
+  const tbody = document.getElementById('hv-tbody');
+  if(!tbody) return;
+  _hvRowCount++;
+  const i = _hvRowCount;
+  const tr = document.createElement('tr');
+  tr.id = `hv-row-${i}`;
+  tr.innerHTML = `<td>${i}</td><td><input class="inp hv-val" type="number" min="0" step="0.1" oninput="_hvUpdateStats()" style="width:90px;"></td><td><button class="dm-row-del" onclick="_hvRemoveRow(${i})">×</button></td>`;
+  tbody.appendChild(tr);
+  tr.querySelector('input').focus();
+}
+
+function _hvRemoveRow(i){
+  const row = document.getElementById(`hv-row-${i}`);
+  if(row){ row.remove(); _hvUpdateStats(); }
+}
+
+function _hvGetVals(){
+  return Array.from(document.querySelectorAll('.hv-val'))
+    .map(el => parseFloat(el.value))
+    .filter(v => !isNaN(v) && v > 0);
+}
+
+function _hvUpdateStats(){
+  const vals = _hvGetVals();
+  const statsEl = document.getElementById('hv-stats');
+  if(!statsEl) return;
+  if(!vals.length){ statsEl.innerHTML = ''; return; }
+  const mean = vals.reduce((a,v)=>a+v,0)/vals.length;
+  const std = vals.length > 1
+    ? Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/(vals.length-1))
+    : 0;
+  const notation = document.getElementById('hv-notation')?.value || 'HV';
+  statsEl.innerHTML = `<strong>n=${vals.length}</strong> · 평균 <strong>${mean.toFixed(1)}</strong> · σ <strong>${std.toFixed(1)}</strong> ${notation}`;
+}
+
+async function dmSaveHv(){
+  const title = document.getElementById('hv-title')?.value?.trim();
+  if(!title){ showToast('제목을 입력해주세요'); return; }
+  const vals = _hvGetVals();
+  if(!vals.length){ showToast('측정값을 최소 1개 이상 입력해주세요'); return; }
+  const mean = vals.reduce((a,v)=>a+v,0)/vals.length;
+  const std = vals.length > 1
+    ? Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/(vals.length-1))
+    : 0;
+  const metadata = {
+    notation: document.getElementById('hv-notation')?.value || 'HV1',
+    dwell: parseFloat(document.getElementById('hv-dwell')?.value) || 15,
+    specimen: document.getElementById('hv-specimen')?.value?.trim() || '',
+    note: document.getElementById('hv-note')?.value?.trim() || '',
+    measurements: vals,
+    mean: parseFloat(mean.toFixed(2)),
+    stdDev: parseFloat(std.toFixed(2)),
+  };
+  showToast('저장 중…');
+  const chartBlob = await _dmRenderHvChartBlob(vals, mean, std, metadata.notation, metadata.specimen);
+  let chartUrl = null;
+  if(chartBlob){
+    const fileName = `data-charts/${state.currentUser.id}/${crypto.randomUUID()}.png`;
+    const { data: upData, error: upErr } = await sb.storage.from('figures').upload(fileName, chartBlob, { contentType:'image/png' });
+    if(!upErr){
+      const { data: urlData } = sb.storage.from('figures').getPublicUrl(fileName);
+      chartUrl = urlData?.publicUrl || null;
+    }
+  }
+  const { entry, failed } = await createDataMineEntry('vickers', title, metadata);
+  if(failed){ showToast('저장 실패'); return; }
+  if(chartUrl){
+    await updateDataMineEntry(entry.id, { chart_url: chartUrl });
+    entry.chart_url = chartUrl;
+  }
+  state.dataMineEntries = [{ ...entry, chart_url: chartUrl }, ...state.dataMineEntries];
+  showToast('저장됐어요');
+  renderDataMine();
+}
+
+async function _dmRenderHvChartBlob(vals, mean, stdDev, notation, specimenName){
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 480; canvas.height = 300;
+    const ctx = canvas.getContext('2d');
+    const labels = vals.map((_,i)=>`${i+1}`);
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { type:'bar', label: notation, data: vals, backgroundColor:'rgba(66,133,244,0.7)', borderColor:'rgba(66,133,244,1)', borderWidth:1 },
+          { type:'line', label:'Mean', data: vals.map(()=>mean), borderColor:'rgba(234,67,53,0.9)', borderWidth:2, pointRadius:0, fill:false },
+        ]
+      },
+      options: {
+        animation: false,
+        plugins: { legend:{ labels:{ font:{ size:11 } } }, title:{ display:!!specimenName, text: specimenName, font:{ size:12 } } },
+        scales: { y:{ title:{ display:true, text: notation } }, x:{ title:{ display:true, text:'측정 번호' } } }
+      }
+    });
+    await new Promise(r=>setTimeout(r,80));
+    return await new Promise(r=>canvas.toBlob(r,'image/png'));
+  } catch(e){ console.error('chart render', e); return null; }
+}
+
+async function dmDeleteEntry(id){
+  if(!confirm('이 데이터를 삭제할까요?')) return;
+  const { failed } = await deleteDataMineEntry(id);
+  if(failed){ showToast('삭제 실패'); return; }
+  state.dataMineEntries = state.dataMineEntries.filter(e=>e.id!==id);
+  showToast('삭제됐어요');
+  _renderDataMineLayout();
+}
+
+async function dmEditSharing(id){
+  const entry = state.dataMineEntries.find(e=>e.id===id);
+  if(!entry) return;
+  const projects = await _fetchMyProjects();
+  const sharedWith = entry.shared_with || [];
+  const projectRows = projects.map(p=>{
+    const checked = sharedWith.some(s=>s.type==='project'&&s.id===p.id);
+    return `<label class="dm-share-row">
+      <input type="checkbox" value="${p.id}" ${checked?'checked':''}> ${escapeHtml(p.title||'(제목 없음)')}
+    </label>`;
+  }).join('') || '<div style="color:var(--ink-faint);font-size:13px;">참여 중인 프로젝트가 없어요</div>';
+  document.getElementById('modal-root').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" style="min-width:300px;max-width:420px;">
+      <h3 style="margin-top:0;">공유 설정</h3>
+      <p style="font-size:13px;color:var(--ink-faint);">선택한 프로젝트 멤버 전체가 이 데이터를 볼 수 있어요.</p>
+      <div id="dm-share-projects" style="display:flex;flex-direction:column;gap:6px;margin:12px 0;">${projectRows}</div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="btn" onclick="dmSaveSharing('${id}')">저장</button>
+        <button class="btn secondary" onclick="closeModal()">취소</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function dmSaveSharing(id){
+  const checks = document.querySelectorAll('#dm-share-projects input[type=checkbox]:checked');
+  const sharedWith = Array.from(checks).map(el=>({ type:'project', id: el.value }));
+  const { failed } = await updateDataMineEntry(id, { shared_with: sharedWith });
+  if(failed){ showToast('저장 실패'); return; }
+  const idx = state.dataMineEntries.findIndex(e=>e.id===id);
+  if(idx>=0) state.dataMineEntries[idx].shared_with = sharedWith;
+  closeModal();
+  showToast('공유 설정이 저장됐어요');
+  _renderDataMineLayout();
+}
+
+async function _fetchMyProjects(){
+  try {
+    const { data, error } = await sb.from('projects').select('id,title').order('updated_at',{ascending:false});
+    if(error) throw error;
+    return data || [];
+  } catch(e){ return []; }
+}
+
 async function renderLibrary(){
   const main = document.getElementById('main-content');
   main.innerHTML = `<div style="padding:40px;color:var(--ink-faint);font-size:13px;">논문 라이브러리를 불러오는 중…</div>`;
@@ -8618,28 +8946,34 @@ async function _pdfRenderAllPages(){
 async function _pdfRenderPage(pn){
   if(!pdfState.pdfDoc) return;
   const page = await pdfState.pdfDoc.getPage(pn);
-  const vp = page.getViewport({scale: pdfState.scale * pdfState.zoom});
+  const dpr = window.devicePixelRatio || 1;
+  const baseScale = pdfState.scale * pdfState.zoom;
+  const vpHiRes = page.getViewport({scale: baseScale * dpr}); // 캔버스 픽셀: DPR 반영
+  const vpCss   = page.getViewport({scale: baseScale});        // CSS 레이아웃용
+
   const cv = document.getElementById(`pdf-cv-${pn}`);
   const tl = document.getElementById(`pdf-tl-${pn}`);
   const hl = document.getElementById(`pdf-hl-${pn}`);
   const cw = document.getElementById(`pdf-cw-${pn}`);
   if(!cv || !tl) return;
 
-  cv.width = vp.width; cv.height = vp.height;
-  [cw, tl, hl].forEach(el=>{ if(el){ el.style.width=vp.width+'px'; el.style.height=vp.height+'px'; }});
+  // 캔버스는 고해상도로, CSS 크기는 일반 픽셀로
+  cv.width = vpHiRes.width; cv.height = vpHiRes.height;
+  cv.style.width = vpCss.width+'px'; cv.style.height = vpCss.height+'px';
+  [cw, tl, hl].forEach(el=>{ if(el){ el.style.width=vpCss.width+'px'; el.style.height=vpCss.height+'px'; }});
 
-  await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise;
+  await page.render({canvasContext: cv.getContext('2d'), viewport: vpHiRes}).promise;
 
   const tc = await page.getTextContent();
   tl.innerHTML = '';
   try {
-    const r = pdfjsLib.renderTextLayer({textContent:tc, container:tl, viewport:vp, textDivs:[]});
+    const r = pdfjsLib.renderTextLayer({textContent:tc, container:tl, viewport:vpCss, textDivs:[]});
     if(r?.promise) await r.promise;
     else if(r?.render) await r.render();
   } catch(e){ /* some versions differ */ }
 
-  tl.addEventListener('mouseup', e => _pdfOnSelectionUp(e, pn, cw, vp));
-  _pdfDrawHighlights(pn, vp);
+  tl.addEventListener('mouseup', e => _pdfOnSelectionUp(e, pn, cw, vpCss));
+  _pdfDrawHighlights(pn, vpCss);
 }
 
 function _pdfDrawHighlights(pn, vp){
@@ -8845,6 +9179,9 @@ function _initMobileUI(){
       </button>
       <button data-tab="library" onclick="goTab('library')">
         <span class="mbn-icon">📚</span>라이브러리
+      </button>
+      <button data-tab="datamine" onclick="goTab('datamine')">
+        <span class="mbn-icon">⛏️</span>데이터
       </button>
       <button data-tab="guide" onclick="goTab('guide')">
         <span class="mbn-icon">🗺️</span>가이드

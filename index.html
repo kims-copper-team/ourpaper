@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="auth-screen" style="display:none;"></div>
@@ -22,6 +23,7 @@
       <nav class="tabs">
         <button id="tab-dashboard" class="active" onclick="goTab('dashboard')">프로젝트</button>
         <button id="tab-library" onclick="goTab('library')">논문 라이브러리</button>
+        <button id="tab-datamine" onclick="goTab('datamine')">데이터 광산</button>
         <button id="tab-guide" onclick="goTab('guide')">사용법</button>
         <button id="tab-admin" onclick="goTab('admin')" style="display:none;">관리자</button>
       </nav>
