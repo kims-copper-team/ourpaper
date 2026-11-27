@@ -7813,6 +7813,14 @@ function dmOpenForm(type){
 
 function _renderHvForm(){
   return `<div class="dm-form">
+    <div class="dm-xlsx-upload" id="dm-xlsx-upload">
+      <label class="dm-xlsx-label">
+        <input type="file" accept=".xlsx,.xls" id="hv-xlsx-input" style="display:none;" onchange="_hvImportXlsx(this)">
+        <span class="dm-xlsx-icon">📂</span>
+        <span>IMT 경도기 Excel 파일 업로드 (선택)</span>
+      </label>
+      <div id="hv-import-status" style="font-size:12px;color:var(--accent);margin-top:4px;"></div>
+    </div>
     <div class="form-row">
       <label>제목 <span class="req">*</span></label>
       <input id="hv-title" class="inp" placeholder="예: Cu-Zr 합금 열처리 경도" style="width:100%;">
@@ -7836,7 +7844,7 @@ function _renderHvForm(){
     <div class="form-row">
       <label>측정값</label>
       <table class="hv-table" id="hv-table">
-        <thead><tr><th>#</th><th>경도값</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>경도값</th><th>D1 (μm)</th><th>D2 (μm)</th><th></th></tr></thead>
         <tbody id="hv-tbody"></tbody>
       </table>
       <button class="btn secondary small" style="margin-top:6px;" onclick="_hvAddRow()">+ 행 추가</button>
@@ -7853,21 +7861,111 @@ function _renderHvForm(){
   </div>`;
 }
 
-function _hvAddRow(){
+function _hvAddRow(hv, d1, d2){
   const tbody = document.getElementById('hv-tbody');
   if(!tbody) return;
   _hvRowCount++;
   const i = _hvRowCount;
   const tr = document.createElement('tr');
   tr.id = `hv-row-${i}`;
-  tr.innerHTML = `<td>${i}</td><td><input class="inp hv-val" type="number" min="0" step="0.1" oninput="_hvUpdateStats()" style="width:90px;"></td><td><button class="dm-row-del" onclick="_hvRemoveRow(${i})">×</button></td>`;
+  tr.innerHTML = `<td>${i}</td>
+    <td><input class="inp hv-val" type="number" min="0" step="0.1" oninput="_hvUpdateStats()" style="width:80px;" value="${hv??''}"></td>
+    <td><input class="inp hv-d1" type="number" min="0" step="0.1" style="width:72px;" value="${d1??''}"></td>
+    <td><input class="inp hv-d2" type="number" min="0" step="0.1" style="width:72px;" value="${d2??''}"></td>
+    <td><button class="dm-row-del" onclick="_hvRemoveRow(${i})">×</button></td>`;
   tbody.appendChild(tr);
-  tr.querySelector('input').focus();
+  if(!hv) tr.querySelector('.hv-val').focus();
+  if(hv) _hvUpdateStats();
 }
 
 function _hvRemoveRow(i){
   const row = document.getElementById(`hv-row-${i}`);
   if(row){ row.remove(); _hvUpdateStats(); }
+}
+
+const HV_GF_TO_NOTATION = {10:'HV0.01',15:'HV0.015',20:'HV0.02',25:'HV0.025',50:'HV0.05',100:'HV0.1',200:'HV0.2',300:'HV0.3',500:'HV0.5',1000:'HV1',2000:'HV2',3000:'HV3',5000:'HV5',10000:'HV10',20000:'HV20',30000:'HV30'};
+
+function _hvImportXlsx(input){
+  const file = input.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('hv-import-status');
+  statusEl.textContent = '파일 읽는 중…';
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type:'array' });
+      const parsed = _hvParseXlsx(wb, file.name);
+      if(!parsed){ statusEl.textContent = '❌ 데이터를 찾을 수 없어요. IMT 경도기 Excel 파일인지 확인해주세요.'; return; }
+      // 폼에 채우기
+      document.getElementById('hv-tbody').innerHTML = '';
+      _hvRowCount = 0;
+      parsed.rows.forEach(r => _hvAddRow(r.hv, r.d1, r.d2));
+      if(parsed.notation){
+        const sel = document.getElementById('hv-notation');
+        if(sel) sel.value = parsed.notation;
+      }
+      if(parsed.dwell) document.getElementById('hv-dwell').value = parsed.dwell;
+      if(parsed.specimen && !document.getElementById('hv-specimen').value)
+        document.getElementById('hv-specimen').value = parsed.specimen;
+      if(!document.getElementById('hv-title').value)
+        document.getElementById('hv-title').value = parsed.specimen || file.name.replace(/\.[^.]+$/,'');
+      statusEl.textContent = `✅ ${parsed.rows.length}개 측정값 가져왔어요`;
+      _hvUpdateStats();
+    } catch(err){
+      console.error('xlsx parse error', err);
+      statusEl.textContent = '❌ 파일 읽기 오류: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function _hvParseXlsx(wb, fileName){
+  // IMT MHT-Auto plus 형식: Sheet2의 "데이터수집기 (데이터)" 섹션 파싱
+  // 다른 시트명도 시도
+  for(const sheetName of wb.SheetNames){
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+    // "데이터수집기 (데이터)" 마커 찾기
+    let dataStart = -1;
+    for(let i=0;i<rows.length;i++){
+      const row = rows[i];
+      if(row && row.some(c=>typeof c==='string'&&c.includes('데이터수집기 (데이터)'))){
+        dataStart = i; break;
+      }
+    }
+    if(dataStart === -1) continue;
+    // 헤더 행 찾기 (다음 비어있지 않은 행)
+    let headerRow = null, headerIdx = -1;
+    for(let i=dataStart+1;i<Math.min(dataStart+5,rows.length);i++){
+      if(rows[i] && rows[i].some(c=>c!=null)){ headerRow=rows[i]; headerIdx=i; break; }
+    }
+    if(!headerRow) continue;
+    // 컬럼 인덱스 매핑
+    const colHV = headerRow.findIndex(c=>typeof c==='string'&&c.trim()==='HV');
+    const colD1 = headerRow.findIndex(c=>typeof c==='string'&&c.trim()==='D1');
+    const colD2 = headerRow.findIndex(c=>typeof c==='string'&&c.trim()==='D2');
+    const colForce = headerRow.findIndex(c=>typeof c==='string'&&(c.includes('Force')||c.includes('gf')));
+    if(colHV===-1) continue;
+    // 데이터 행 읽기 (빈 행 전까지)
+    const dataRows = [];
+    let forceGf = null;
+    for(let i=headerIdx+1;i<rows.length;i++){
+      const row = rows[i];
+      if(!row || !row.some(c=>c!=null)) break;
+      const hv = colHV>=0 ? parseFloat(row[colHV]) : NaN;
+      if(isNaN(hv)||hv<=0) break;
+      const d1 = colD1>=0 ? parseFloat(row[colD1]) : null;
+      const d2 = colD2>=0 ? parseFloat(row[colD2]) : null;
+      if(!forceGf && colForce>=0 && row[colForce]) forceGf = parseFloat(row[colForce]);
+      dataRows.push({ hv, d1:isNaN(d1)?null:d1, d2:isNaN(d2)?null:d2 });
+    }
+    if(!dataRows.length) continue;
+    const notation = forceGf ? (HV_GF_TO_NOTATION[Math.round(forceGf)] || null) : null;
+    // 파일명에서 시편명 추출 (확장자 제거)
+    const specimen = fileName.replace(/\.[^.]+$/,'').replace(/^[0-9a-f-]+-/,'');
+    return { rows: dataRows, notation, dwell: null, specimen };
+  }
+  return null;
 }
 
 function _hvGetVals(){
@@ -7898,12 +7996,16 @@ async function dmSaveHv(){
   const std = vals.length > 1
     ? Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/(vals.length-1))
     : 0;
+  const d1vals = Array.from(document.querySelectorAll('.hv-d1')).map(el=>parseFloat(el.value)).filter(v=>!isNaN(v)&&v>0);
+  const d2vals = Array.from(document.querySelectorAll('.hv-d2')).map(el=>parseFloat(el.value)).filter(v=>!isNaN(v)&&v>0);
   const metadata = {
     notation: document.getElementById('hv-notation')?.value || 'HV1',
     dwell: parseFloat(document.getElementById('hv-dwell')?.value) || 15,
     specimen: document.getElementById('hv-specimen')?.value?.trim() || '',
     note: document.getElementById('hv-note')?.value?.trim() || '',
     measurements: vals,
+    d1: d1vals,
+    d2: d2vals,
     mean: parseFloat(mean.toFixed(2)),
     stdDev: parseFloat(std.toFixed(2)),
   };
