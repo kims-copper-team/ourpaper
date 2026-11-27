@@ -7900,11 +7900,12 @@ function dmOpenForm(type){
 
 function _renderHvForm(){
   return `<div class="dm-form">
-    <div class="dm-xlsx-upload" id="dm-xlsx-upload">
+    <div class="dm-xlsx-upload" id="dm-xlsx-upload"
+      ondragover="_hvDragOver(event)" ondragleave="_hvDragLeave(event)" ondrop="_hvDrop(event)">
       <label class="dm-xlsx-label">
         <input type="file" accept=".xlsx,.xls" id="hv-xlsx-input" style="display:none;" onchange="_hvImportXlsx(this)">
         <span class="dm-xlsx-icon">📂</span>
-        <span>IMT 경도기 Excel 파일 업로드 (선택)</span>
+        <span>Excel 파일 클릭 또는 드래그 &amp; 드롭</span>
       </label>
       <div id="hv-import-status" style="font-size:12px;color:var(--accent);margin-top:4px;"></div>
     </div>
@@ -7972,9 +7973,28 @@ function _hvRemoveRow(i){
 
 const HV_GF_TO_NOTATION = {10:'HV0.01',15:'HV0.015',20:'HV0.02',25:'HV0.025',50:'HV0.05',100:'HV0.1',200:'HV0.2',300:'HV0.3',500:'HV0.5',1000:'HV1',2000:'HV2',3000:'HV3',5000:'HV5',10000:'HV10',20000:'HV20',30000:'HV30'};
 
+function _hvDragOver(e){
+  e.preventDefault();
+  document.getElementById('dm-xlsx-upload')?.classList.add('dragover');
+}
+function _hvDragLeave(e){
+  if(!e.currentTarget.contains(e.relatedTarget))
+    document.getElementById('dm-xlsx-upload')?.classList.remove('dragover');
+}
+function _hvDrop(e){
+  e.preventDefault();
+  document.getElementById('dm-xlsx-upload')?.classList.remove('dragover');
+  const file = e.dataTransfer?.files?.[0];
+  if(!file) return;
+  if(!/\.(xlsx|xls)$/i.test(file.name)){ document.getElementById('hv-import-status').textContent='❌ .xlsx 또는 .xls 파일만 가능해요'; return; }
+  _hvImportXlsxFile(file);
+}
 function _hvImportXlsx(input){
   const file = input.files[0];
   if(!file) return;
+  _hvImportXlsxFile(file);
+}
+function _hvImportXlsxFile(file){
   const statusEl = document.getElementById('hv-import-status');
   statusEl.textContent = '파일 읽는 중…';
   const reader = new FileReader();
