@@ -1453,3 +1453,92 @@ mark.hl.hl-flash{ animation:hlFlash 1.5s ease; }
   .mobile-bottom-nav{ display:none; }
   .toc-mobile-fab{ display:none; }
 }
+
+/* ============================================================
+   데이터 광산
+   ============================================================ */
+.dm-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:16px;
+  padding:0 32px 40px;
+}
+.dm-empty{
+  grid-column:1/-1;
+  text-align:center;
+  color:var(--ink-faint);
+  font-size:14px;
+  padding:60px 0;
+}
+.dm-card{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.dm-card-head{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.dm-card-icon{ font-size:20px; flex-shrink:0; }
+.dm-card-title{ flex:1; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dm-card-del{ background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:16px; padding:0 2px; line-height:1; }
+.dm-card-del:hover{ color:var(--danger,#e53e3e); }
+.dm-card-type{ font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.04em; }
+.dm-card-summary{ font-size:13px; color:var(--accent); font-weight:500; }
+.dm-card-meta{ font-size:12px; color:var(--ink-faint); }
+.dm-card-chart{ margin-top:6px; }
+.dm-card-actions{ margin-top:8px; display:flex; gap:6px; }
+
+.dm-type-picker{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  padding:16px 32px;
+  background:var(--surface);
+  border-bottom:1px solid var(--line);
+}
+.dm-type-btn{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 16px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--bg);
+  cursor:pointer;
+  font-size:14px;
+  color:var(--ink);
+  transition:border-color .15s, box-shadow .15s;
+}
+.dm-type-btn:hover{ border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 15%,transparent); }
+
+.dm-form-wrap{ padding:24px 32px; max-width:600px; }
+.dm-form .form-row{ margin-bottom:16px; }
+.dm-form label{ display:block; font-size:12px; color:var(--ink-faint); margin-bottom:4px; }
+.dm-form .req{ color:var(--danger,#e53e3e); }
+.hv-table{ width:100%; border-collapse:collapse; font-size:13px; }
+.hv-table th, .hv-table td{ padding:4px 8px; border:1px solid var(--line); }
+.hv-table th{ background:var(--surface); font-weight:500; }
+.dm-row-del{ background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:14px; }
+.dm-row-del:hover{ color:var(--danger,#e53e3e); }
+.hv-stats{
+  margin-top:8px;
+  padding:8px 12px;
+  background:var(--surface);
+  border-radius:6px;
+  font-size:13px;
+  color:var(--ink);
+  min-height:30px;
+}
+.dm-share-row{ display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+
+@media (max-width:640px){
+  .dm-grid{ padding:0 16px 32px; grid-template-columns:1fr; }
+  .dm-form-wrap{ padding:16px; }
+  .dm-type-picker{ padding:12px 16px; }
+}
